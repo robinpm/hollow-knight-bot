@@ -14,8 +14,9 @@ with _conn:
         """CREATE TABLE IF NOT EXISTS progress (
                 guild_id TEXT,
                 user_id TEXT,
+
                 update_text TEXT,
-                ts INTEGER
+         ts INTEGER
             )"""
     )
     _conn.execute(
@@ -34,6 +35,7 @@ def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
     """Store a progress update."""
     with _conn:
         _conn.execute(
+
             "INSERT INTO progress (guild_id, user_id, update_text, ts) VALUES (?, ?, ?, ?)",
             (str(guild_id), str(user_id), text, ts),
         )
@@ -42,11 +44,13 @@ def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
 def get_last_update(guild_id: int, user_id: int) -> Optional[Tuple[str, int]]:
     """Return the most recent update for a user in a guild."""
     cur = _conn.execute(
+
         "SELECT update_text, ts FROM progress WHERE guild_id=? AND user_id=? ORDER BY ts DESC LIMIT 1",
         (str(guild_id), str(user_id)),
     )
     row = cur.fetchone()
     return (row["update_text"], row["ts"]) if row else None
+
 
 
 def get_updates_today_by_guild(guild_id: int) -> Dict[str, List[str]]:
@@ -56,12 +60,16 @@ def get_updates_today_by_guild(guild_id: int) -> Dict[str, List[str]]:
     )
     start_ts = int(start_of_day.timestamp())
     cur = _conn.execute(
+
         "SELECT user_id, update_text FROM progress WHERE guild_id=? AND ts>=? ORDER BY ts",
+
         (str(guild_id), start_ts),
     )
     updates: Dict[str, List[str]] = {}
     for row in cur.fetchall():
+
         updates.setdefault(row["user_id"], []).append(row["update_text"])
+
     return updates
 
 
