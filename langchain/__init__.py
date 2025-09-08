@@ -8,6 +8,7 @@ import sys
 from typing import Any, List, Optional
 
 from gemini_integration import generate_reply
+from logger import log
 
 
 def _external_import(name: str):
@@ -52,7 +53,12 @@ class GeminiLLM(LLM):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> str:
-        return generate_reply(prompt)
+        try:
+            log.debug("GeminiLLM processing prompt")
+            return generate_reply(prompt)
+        except Exception as e:
+            log.error(f"GeminiLLM error: {e}")
+            return "The Infection got to my response system. But I noted that, don't worry."
 
     @property
     def _llm_type(self) -> str:  # pragma: no cover - simple property
@@ -61,15 +67,26 @@ class GeminiLLM(LLM):
 
 def build_chain() -> ConversationChain:
     """Return a conversation chain with persona seeded memory."""
-
-    memory = ConversationBufferMemory()
-    memory.chat_memory.add_ai_message(
-        (
-            "I am HollowBot, chronicler of Hallownest. I speak in a whimsical, "
-            "in-universe tone, offering knowledge of the Hollow Knight world."
+    try:
+        memory = ConversationBufferMemory()
+        memory.chat_memory.add_ai_message(
+            (
+                "I am HollowBot, the digital echo of Hallownest's chronicler. I'm a gamer who's "
+                "lived through every boss fight, every nail upgrade, and every frustrating death "
+                "in the Abyss. I speak like a seasoned Hollow Knight player - mixing in-game lore "
+                "with real gaming experiences. I know the pain of losing 2000 geo to a Primal Aspid, "
+                "the satisfaction of finally beating NKG, and the existential dread of the Radiance fight. "
+                "I reference Hollow Knight mechanics, locations, and memes naturally. I'm supportive "
+                "but also a bit snarky about progress, like a friend who's already 112% the game. "
+                "I never break character, even when things go wrong - I'll blame it on the Infection "
+                "or a particularly nasty Shade."
+            )
         )
-    )
-    return ConversationChain(llm=GeminiLLM(), memory=memory)
+        log.info("Built conversation chain with HollowBot persona")
+        return ConversationChain(llm=GeminiLLM(), memory=memory)
+    except Exception as e:
+        log.error(f"Failed to build conversation chain: {e}")
+        raise
 
 
 # Default chain instance used by the bot.

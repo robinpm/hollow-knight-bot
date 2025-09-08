@@ -1,4 +1,14 @@
-discord.py>=2.4,<3
-google-genai>=1.0.0
-langchain
-langchain-community
+# Core Discord bot framework
+discord.py>=2.4.0,<3.0.0
+
+# AI/ML dependencies
+google-genai>=1.0.0,<2.0.0
+langchain>=0.1.0,<1.0.0
+langchain-community>=0.0.20,<1.0.0
+
+# Development and testing (optional)
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0

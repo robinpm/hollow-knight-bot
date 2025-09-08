@@ -1,7 +1,5 @@
 """Discord bot that tracks Hollow Knight progress and posts recaps."""
 
-import logging
-import os
 import re
 import time
 from datetime import datetime, timezone
@@ -12,23 +10,27 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import database
+from config import config
 from gemini_integration import generate_daily_summary
 from langchain import chain as convo_chain
-
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("hollowbot")
-
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-if not DISCORD_TOKEN:
-    raise RuntimeError("Missing DISCORD_TOKEN env var")
+from logger import log
+from validation import (
+    ValidationError,
+    validate_guild_id,
+    validate_user_id,
+    validate_progress_text,
+    validate_time_format,
+    validate_channel_id,
+    sanitize_mention_command,
+    validate_server_name,
+    validate_updates_dict,
+)
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix=None, intents=intents)
+bot = commands.Bot(command_prefix=config.command_prefix, intents=intents)
 
-MENTION_RE = re.compile(r"^<@!?(\d+)>\s*")
-TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 PROGRESS_RE = re.compile(r"\b(beat|got|found|upgraded)\b", re.I)
 last_sent: Dict[str, datetime.date] = {}
 
@@ -40,109 +42,187 @@ def is_admin(member: discord.Member) -> bool:
 
 def _parse_mention_command(content: str) -> tuple[bool, str]:
     """Return (mentioned, rest_of_message)."""
-    m = MENTION_RE.match(content)
-    if not m:
-        return False, ""
-    return True, content[m.end():]
+    return sanitize_mention_command(content)
 
 
 def _build_updates_context(guild: discord.Guild) -> str:
-    updates = database.get_updates_today_by_guild(guild.id)
-    lines: List[str] = []
-    for uid, texts in updates.items():
-        member = guild.get_member(int(uid))
-        name = member.display_name if member else f"User {uid}"
-        lines.append(f"{name}: {', '.join(texts)}")
-    return "\n".join(lines) if lines else "No updates yet today."
+    """Build context string from today's updates."""
+    try:
+        validate_guild_id(guild.id)
+        updates = database.get_updates_today_by_guild(guild.id)
+        validated_updates = validate_updates_dict(updates)
+        
+        lines: List[str] = []
+        for uid, texts in validated_updates.items():
+            try:
+                member = guild.get_member(int(uid))
+                name = member.display_name if member else f"User {uid}"
+                lines.append(f"{name}: {', '.join(texts)}")
+            except (ValueError, TypeError) as e:
+                log.warning(f"Invalid user ID in updates: {uid}, error: {e}")
+                continue
+        
+        return "\n".join(lines) if lines else "No updates yet today."
+    except (ValidationError, database.DatabaseError) as e:
+        log.error(f"Failed to build updates context: {e}")
+        return "The echoes of Hallownest are temporarily silent."
 
 
 def _build_progress_reply(guild: discord.Guild, text: str) -> str:
-    context = _build_updates_context(guild)
-    riff = convo_chain.predict(
-        input=f"Recent updates:\n{context}\nNew update: {text}"
-    )
-    reply = f"Noted: {text}"
-    if riff and riff != "Noted.":
-        reply += f"\n{riff}"
-    return reply
+    """Build a progress reply with AI-generated commentary."""
+    try:
+        validated_text = validate_progress_text(text)
+        context = _build_updates_context(guild)
+        
+        prompt = f"Recent updates:\n{context}\nNew update: {validated_text}"
+        riff = convo_chain.predict(input=prompt)
+        
+        reply = f"📝 Echo recorded: {validated_text}"
+        if riff and riff not in ["Noted.", "Noted, gamer. The echoes of Hallownest have been recorded."]:
+            reply += f"\n\n{riff}"
+        
+        return reply
+    except ValidationError as e:
+        log.warning(f"Invalid progress text: {e}")
+        return "Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!"
+    except Exception as e:
+        log.error(f"Failed to build progress reply: {e}")
+        return f"📝 Echo recorded: {text}\n\nThe Chronicler had trouble processing that one, but it's noted!"
 
 
 @bot.event
 async def on_ready() -> None:
-    await bot.tree.sync()
-    log.info("Logged in as %s", bot.user)
-    recap_tick.start()
+    """Handle bot ready event."""
+    try:
+        await bot.tree.sync()
+        log.info("HollowBot logged in as %s", bot.user)
+        recap_tick.start()
+    except Exception as e:
+        log.error(f"Failed to sync commands or start tasks: {e}")
+        raise
 
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
-    if message.author.bot or not message.guild or not bot.user:
-        return
-    mentioned, rest = _parse_mention_command(message.content.strip())
-    if not mentioned or message.mentions[0].id != bot.user.id:
-        return
-    rest = rest.strip()
-    if not rest:
-        return
+    """Handle incoming messages."""
+    try:
+        if message.author.bot or not message.guild or not bot.user:
+            return
+        
+        mentioned, rest = _parse_mention_command(message.content.strip())
+        if not mentioned or message.mentions[0].id != bot.user.id:
+            return
+        
+        if not rest:
+            return
 
-    log.info("Mention from %s: %s", message.author.id, rest)
+        log.info("Mention from %s: %s", message.author.id, rest)
 
-    if PROGRESS_RE.search(rest):
-        await handle_progress(message, rest)
-        return
+        if PROGRESS_RE.search(rest):
+            await handle_progress(message, rest)
+            return
 
-    context = _build_updates_context(message.guild)
-    prompt = f"Recent updates:\n{context}\nUser said: {rest}"
-    reply = convo_chain.predict(input=prompt)
-    await message.reply(reply or "Noted.")
+        context = _build_updates_context(message.guild)
+        prompt = f"Recent updates:\n{context}\nUser said: {rest}"
+        reply = convo_chain.predict(input=prompt)
+        await message.reply(reply or "The echoes of Hallownest have been heard, gamer.")
+        
+    except Exception as e:
+        log.error(f"Error handling message: {e}")
+        try:
+            await message.reply("The Infection got to my response system. But I heard you, gamer!")
+        except Exception as reply_error:
+            log.error(f"Failed to send error reply: {reply_error}")
 
 
 async def handle_progress(message: discord.Message, text: str) -> None:
-    if not text:
-        await message.reply("Usage: @HollowBot progress <what you did>")
-        return
-    now_ts = int(time.time())
-    last = database.get_last_update(message.guild.id, message.author.id)
-    database.add_update(message.guild.id, message.author.id, text, now_ts)
-    reply = _build_progress_reply(message.guild, text)
-    await message.reply(reply)
-    if last:
-        days = (now_ts - last[1]) // 86400
-        if days > 30:
-            await message.channel.send("dang you beat Mantis months ago, slow-poke.")
+    """Handle progress updates with validation and error handling."""
+    try:
+        if not text:
+            await message.reply("Gamer, you gotta tell me what you accomplished! Usage: @HollowBot progress <what you did>")
+            return
+        
+        # Validate inputs
+        validate_guild_id(message.guild.id)
+        validate_user_id(message.author.id)
+        validated_text = validate_progress_text(text)
+        
+        now_ts = int(time.time())
+        last = database.get_last_update(message.guild.id, message.author.id)
+        database.add_update(message.guild.id, message.author.id, validated_text, now_ts)
+        
+        reply = _build_progress_reply(message.guild, validated_text)
+        await message.reply(reply)
+        
+        # Check for long absence
+        if last:
+            days = (now_ts - last[1]) // 86400
+            if days > 30:
+                await message.channel.send("Bruh, you beat the Mantis Lords months ago and you're still here? That's some serious dedication to the grind, gamer. Respect.")
+                
+    except ValidationError as e:
+        log.warning(f"Validation error in handle_progress: {e}")
+        await message.reply("Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!")
+    except database.DatabaseError as e:
+        log.error(f"Database error in handle_progress: {e}")
+        await message.reply("The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!")
+    except Exception as e:
+        log.error(f"Unexpected error in handle_progress: {e}")
+        await message.reply("The Infection got to my progress tracking system. But I'll try to remember that, gamer!")
 
 
-hollow_group = app_commands.Group(name="hollow-bot", description="Hollow Bot commands")
+hollow_group = app_commands.Group(name="hollow-bot", description="Chronicle your Hallownest journey with HollowBot")
 
 
-@hollow_group.command(name="progress", description="Log your progress")
+@hollow_group.command(name="progress", description="Record your latest Hallownest achievement")
 async def slash_progress(interaction: discord.Interaction, text: str) -> None:
-    if not interaction.guild:
-        await interaction.response.send_message("Guild only", ephemeral=True)
-        return
-    now_ts = int(time.time())
-    last = database.get_last_update(interaction.guild.id, interaction.user.id)
-    database.add_update(interaction.guild.id, interaction.user.id, text, now_ts)
-    reply = _build_progress_reply(interaction.guild, text)
-    await interaction.response.send_message(reply)
-    if last:
-        days = (now_ts - last[1]) // 86400
-        if days > 30 and interaction.channel:
-            await interaction.channel.send("dang you beat Mantis months ago, slow-poke.")
+    """Handle slash command for progress updates."""
+    try:
+        if not interaction.guild:
+            await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
+            return
+        
+        # Validate inputs
+        validate_guild_id(interaction.guild.id)
+        validate_user_id(interaction.user.id)
+        validated_text = validate_progress_text(text)
+        
+        now_ts = int(time.time())
+        last = database.get_last_update(interaction.guild.id, interaction.user.id)
+        database.add_update(interaction.guild.id, interaction.user.id, validated_text, now_ts)
+        
+        reply = _build_progress_reply(interaction.guild, validated_text)
+        await interaction.response.send_message(reply)
+        
+        # Check for long absence
+        if last:
+            days = (now_ts - last[1]) // 86400
+            if days > 30 and interaction.channel:
+                await interaction.channel.send("Bruh, you beat the Mantis Lords months ago and you're still here? That's some serious dedication to the grind, gamer. Respect.")
+                
+    except ValidationError as e:
+        log.warning(f"Validation error in slash_progress: {e}")
+        await interaction.response.send_message("Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!", ephemeral=True)
+    except database.DatabaseError as e:
+        log.error(f"Database error in slash_progress: {e}")
+        await interaction.response.send_message("The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!", ephemeral=True)
+    except Exception as e:
+        log.error(f"Unexpected error in slash_progress: {e}")
+        await interaction.response.send_message("The Infection got to my progress tracking system. But I'll try to remember that, gamer!", ephemeral=True)
 
 
-@hollow_group.command(name="get_progress", description="Show latest progress")
+@hollow_group.command(name="get_progress", description="Check the latest echo from a gamer's journey")
 async def slash_get_progress(
     interaction: discord.Interaction, user: Optional[discord.Member] = None
 ) -> None:
     if not interaction.guild:
-        await interaction.response.send_message("Guild only", ephemeral=True)
+        await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
         return
     target = user or interaction.user
     result = database.get_last_update(interaction.guild.id, target.id)
     if not result:
         await interaction.response.send_message(
-            f"No progress saved for {target.display_name} yet."
+            f"No echoes recorded for {target.display_name} yet. Time to start that Hallownest journey, gamer!"
         )
         return
     text, ts = result
@@ -151,46 +231,48 @@ async def slash_get_progress(
     hours = age_sec // 3600
     age_str = f"{days}d" if days else f"{hours}h"
     await interaction.response.send_message(
-        f"Last for **{target.display_name}**: “{text}” ({age_str} ago)"
+        f"📜 Last echo from **{target.display_name}**: "{text}" ({age_str} ago)"
     )
 
 
-@hollow_group.command(name="set_reminder_channel", description="Set recap channel")
+@hollow_group.command(name="set_reminder_channel", description="Set the chronicle channel for daily echoes")
 async def slash_set_channel(interaction: discord.Interaction) -> None:
     if not interaction.guild or not interaction.channel:
-        await interaction.response.send_message("Guild only", ephemeral=True)
+        await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
         return
     if not is_admin(interaction.user):
         await interaction.response.send_message(
-            "You need Manage Server to do that.", ephemeral=True
+            "Gamer, you need Manage Server permissions to set up the chronicle channel. The Infection won't let just anyone mess with the echoes.", ephemeral=True
         )
         return
     database.set_recap_channel(interaction.guild.id, interaction.channel.id)
     await interaction.response.send_message(
-        f"Daily recap channel set to {interaction.channel.mention}."
+        f"📜 Chronicle channel set to {interaction.channel.mention}. The echoes of Hallownest will be recorded here daily, gamer!"
     )
 
 
 @hollow_group.command(
-    name="schedule_daily_reminder", description="Schedule daily recap (UTC)"
+    name="schedule_daily_reminder", description="Schedule when the chronicle echoes daily (UTC)"
 )
 async def slash_schedule(interaction: discord.Interaction, time: str) -> None:
     if not interaction.guild:
-        await interaction.response.send_message("Guild only", ephemeral=True)
+        await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
         return
     if not is_admin(interaction.user):
         await interaction.response.send_message(
-            "You need Manage Server to do that.", ephemeral=True
+            "Gamer, you need Manage Server permissions to schedule the chronicle. The Infection won't let just anyone mess with the echoes.", ephemeral=True
         )
         return
-    if not TIME_RE.match(time):
+    try:
+        validated_time = validate_time_format(time)
+    except ValidationError as e:
         await interaction.response.send_message(
-            "Give me a time like `18:00` (UTC).", ephemeral=True
+            f"Gamer, {e}. Even the Pale King had better time management than that!", ephemeral=True
         )
         return
-    database.set_recap_time(interaction.guild.id, time)
+    database.set_recap_time(interaction.guild.id, validated_time)
     await interaction.response.send_message(
-        f"Daily recap scheduled for **{time} UTC**."
+        f"⏰ Chronicle scheduled for **{validated_time} UTC**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
     )
 
 
@@ -199,34 +281,86 @@ bot.tree.add_command(hollow_group)
 
 @tasks.loop(minutes=1)
 async def recap_tick() -> None:
-    if not bot.user:
-        return
-    now = datetime.now(timezone.utc)
-    hhmm = now.strftime("%H:%M")
-    for guild_id, channel_id, recap_time in database.get_all_guild_configs():
-        if not channel_id or recap_time != hhmm:
-            continue
-        if last_sent.get(guild_id) == now.date():
-            continue
-        updates = database.get_updates_today_by_guild(int(guild_id))
-        guild = bot.get_guild(int(guild_id))
-        pretty: Dict[str, List[str]] = {}
-        if guild:
-            for uid, items in updates.items():
-                member = guild.get_member(int(uid)) or await guild.fetch_member(int(uid))
-                name = member.display_name if member else f"User {uid}"
-                pretty[name] = items
-        else:
-            pretty = {uid: items for uid, items in updates.items()}
-        summary = generate_daily_summary(
-            guild.name if guild else f"Guild {guild_id}", pretty
-        )
-        channel = bot.get_channel(int(channel_id)) or await bot.fetch_channel(
-            int(channel_id)
-        )
-        await channel.send(summary)
-        last_sent[guild_id] = now.date()
+    """Handle daily recap scheduling and execution."""
+    try:
+        if not bot.user:
+            return
+        
+        now = datetime.now(timezone.utc)
+        hhmm = now.strftime("%H:%M")
+        
+        guild_configs = database.get_all_guild_configs()
+        log.debug(f"Checking {len(guild_configs)} guild configs for recap time {hhmm}")
+        
+        for guild_id, channel_id, recap_time in guild_configs:
+            try:
+                if not channel_id or recap_time != hhmm:
+                    continue
+                
+                if last_sent.get(guild_id) == now.date():
+                    continue
+                
+                # Get updates for this guild
+                updates = database.get_updates_today_by_guild(int(guild_id))
+                validated_updates = validate_updates_dict(updates)
+                
+                if not validated_updates:
+                    log.debug(f"No updates to summarize for guild {guild_id}")
+                    continue
+                
+                # Get guild info
+                guild = bot.get_guild(int(guild_id))
+                pretty: Dict[str, List[str]] = {}
+                
+                if guild:
+                    server_name = validate_server_name(guild.name)
+                    for uid, items in validated_updates.items():
+                        try:
+                            member = guild.get_member(int(uid))
+                            if not member:
+                                # Try to fetch if not cached
+                                try:
+                                    member = await guild.fetch_member(int(uid))
+                                except discord.NotFound:
+                                    log.warning(f"Member {uid} not found in guild {guild_id}")
+                                    member = None
+                            
+                            name = member.display_name if member else f"User {uid}"
+                            pretty[name] = items
+                        except (ValueError, TypeError) as e:
+                            log.warning(f"Invalid user ID in updates: {uid}, error: {e}")
+                            continue
+                else:
+                    server_name = f"Guild {guild_id}"
+                    pretty = {f"User {uid}": items for uid, items in validated_updates.items()}
+                
+                # Generate and send summary
+                summary = generate_daily_summary(server_name, pretty)
+                
+                channel = bot.get_channel(int(channel_id))
+                if not channel:
+                    try:
+                        channel = await bot.fetch_channel(int(channel_id))
+                    except discord.NotFound:
+                        log.error(f"Channel {channel_id} not found for guild {guild_id}")
+                        continue
+                
+                await channel.send(summary)
+                last_sent[guild_id] = now.date()
+                log.info(f"Sent daily recap for guild {guild_id}")
+                
+            except Exception as e:
+                log.error(f"Error processing recap for guild {guild_id}: {e}")
+                continue
+                
+    except Exception as e:
+        log.error(f"Error in recap_tick: {e}")
 
 
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    try:
+        log.info("Starting HollowBot...")
+        bot.run(config.discord_token)
+    except Exception as e:
+        log.error(f"Failed to start bot: {e}")
+        raise
