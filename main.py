@@ -12,7 +12,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import database
-from gemini_integration import generate_daily_summary, generate_reply
+from gemini_integration import generate_daily_summary
+from langchain import chain as convo_chain
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("hollowbot")
@@ -57,7 +58,9 @@ def _build_updates_context(guild: discord.Guild) -> str:
 
 def _build_progress_reply(guild: discord.Guild, text: str) -> str:
     context = _build_updates_context(guild)
-    riff = generate_reply(f"Recent updates:\n{context}\nNew update: {text}")
+    riff = convo_chain.predict(
+        input=f"Recent updates:\n{context}\nNew update: {text}"
+    )
     reply = f"Noted: {text}"
     if riff and riff != "Noted.":
         reply += f"\n{riff}"
@@ -90,7 +93,7 @@ async def on_message(message: discord.Message) -> None:
 
     context = _build_updates_context(message.guild)
     prompt = f"Recent updates:\n{context}\nUser said: {rest}"
-    reply = generate_reply(prompt)
+    reply = convo_chain.predict(input=prompt)
     await message.reply(reply or "Noted.")
 
 
