@@ -1,235 +1,229 @@
-"""
-Entry point for the Hollow Knight Progress Tracker Discord bot.
+"""Discord bot that tracks Hollow Knight progress and posts recaps."""
 
-sThis module initializes the Discord client, defines command handlers, and runs
-two background tasks: a keep-alive HTTP server (for Render free tier) and a
-summary loop that triggers daily recaps using the Gemini integration.
-"""
-
+import logging
 import os
 import re
-import asyncio
-import logging
-from datetime import datetime, time, timedelta, timezone
+import time
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 import discord
-from aiohttp import web
+from discord import app_commands
+from discord.ext import commands, tasks
 
-from database import Database
-from gemini_integration import generate_daily_summary
+import database
+from gemini_integration import generate_daily_summary, generate_reply
 
-from typing import Optional, Dict, List, Tuple
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("hollowbot")
 
-# Retrieve essential environment variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
-    raise RuntimeError("Missing DISCORD_TOKEN environment variable")
+    raise RuntimeError("Missing DISCORD_TOKEN env var")
 
-# Database URL can point to Postgres or default to local SQLite
-DB_URL = os.getenv("DATABASE_URL", "sqlite:///data.sqlite")
-# Port for the keep-alive HTTP server. Render injects PORT for web services.
-PORT = int(os.getenv("PORT", "10000"))
-
-# Instantiate the database
-db = Database(DB_URL)
-
-# Configure Discord intents: minimal by default but enable message content and members
 intents = discord.Intents.default()
-intents.message_content = True  # required to read messages for mention-commands
-intents.members = True  # needed to fetch display names for recaps
-client = discord.Client(intents=intents)
+intents.message_content = True
+intents.members = True
+bot = commands.Bot(command_prefix=None, intents=intents)
 
-# Regular expression to parse commands addressing the bot
-MENTION_RE = re.compile(r"^<@!?(\d+)>")
-
-HELP_TEXT = (
-    "Commands (mention me first):\n"
-    "• progress <text> — save your progress.\n"
-    "• get_progress [@user] — show last update (yours by default).\n"
-    "• set_reminder_channel — set this channel for daily recap (admin).\n"
-    "• schedule_daily_reminder <HH:MM> — UTC time for daily recap (admin).\n"
-    "Example: @HollowBot schedule_daily_reminder 18:00"
-)
+MENTION_RE = re.compile(r"^<@!?(\d+)>\s*")
+TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+PROGRESS_RE = re.compile(r"\b(beat|got|found|upgraded)\b", re.I)
+last_sent: Dict[str, datetime.date] = {}
 
 
 def is_admin(member: discord.Member) -> bool:
-    """Determine if a guild member has administrative permissions."""
-    permissions = member.guild_permissions
-    return (
-        permissions.administrator
-        or permissions.manage_guild
-        or permissions.manage_channels
+    perms = member.guild_permissions
+    return perms.administrator or perms.manage_guild or perms.manage_channels
+
+
+def _parse_mention_command(content: str) -> tuple[bool, str]:
+    """Return (mentioned, rest_of_message)."""
+    m = MENTION_RE.match(content)
+    if not m:
+        return False, ""
+    return True, content[m.end():]
+
+
+def _build_updates_context(guild: discord.Guild) -> str:
+    updates = database.get_updates_today_by_guild(guild.id)
+    lines: List[str] = []
+    for uid, texts in updates.items():
+        member = guild.get_member(int(uid))
+        name = member.display_name if member else f"User {uid}"
+        lines.append(f"{name}: {', '.join(texts)}")
+    return "\n".join(lines) if lines else "No updates yet today."
+
+
+def _build_progress_reply(guild: discord.Guild, text: str) -> str:
+    context = _build_updates_context(guild)
+    riff = generate_reply(f"Recent updates:\n{context}\nNew update: {text}")
+    reply = f"Noted: {text}"
+    if riff and riff != "Noted.":
+        reply += f"\n{riff}"
+    return reply
+
+
+@bot.event
+async def on_ready() -> None:
+    await bot.tree.sync()
+    log.info("Logged in as %s", bot.user)
+    recap_tick.start()
+
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    if message.author.bot or not message.guild or not bot.user:
+        return
+    mentioned, rest = _parse_mention_command(message.content.strip())
+    if not mentioned or message.mentions[0].id != bot.user.id:
+        return
+    rest = rest.strip()
+    if not rest:
+        return
+
+    log.info("Mention from %s: %s", message.author.id, rest)
+
+    if PROGRESS_RE.search(rest):
+        await handle_progress(message, rest)
+        return
+
+    context = _build_updates_context(message.guild)
+    prompt = f"Recent updates:\n{context}\nUser said: {rest}"
+    reply = generate_reply(prompt)
+    await message.reply(reply or "Noted.")
+
+
+async def handle_progress(message: discord.Message, text: str) -> None:
+    if not text:
+        await message.reply("Usage: @HollowBot progress <what you did>")
+        return
+    now_ts = int(time.time())
+    last = database.get_last_update(message.guild.id, message.author.id)
+    database.add_update(message.guild.id, message.author.id, text, now_ts)
+    reply = _build_progress_reply(message.guild, text)
+    await message.reply(reply)
+    if last:
+        days = (now_ts - last[1]) // 86400
+        if days > 30:
+            await message.channel.send("dang you beat Mantis months ago, slow-poke.")
+
+
+hollow_group = app_commands.Group(name="hollow-bot", description="Hollow Bot commands")
+
+
+@hollow_group.command(name="progress", description="Log your progress")
+async def slash_progress(interaction: discord.Interaction, text: str) -> None:
+    if not interaction.guild:
+        await interaction.response.send_message("Guild only", ephemeral=True)
+        return
+    now_ts = int(time.time())
+    last = database.get_last_update(interaction.guild.id, interaction.user.id)
+    database.add_update(interaction.guild.id, interaction.user.id, text, now_ts)
+    reply = _build_progress_reply(interaction.guild, text)
+    await interaction.response.send_message(reply)
+    if last:
+        days = (now_ts - last[1]) // 86400
+        if days > 30 and interaction.channel:
+            await interaction.channel.send("dang you beat Mantis months ago, slow-poke.")
+
+
+@hollow_group.command(name="get_progress", description="Show latest progress")
+async def slash_get_progress(
+    interaction: discord.Interaction, user: Optional[discord.Member] = None
+) -> None:
+    if not interaction.guild:
+        await interaction.response.send_message("Guild only", ephemeral=True)
+        return
+    target = user or interaction.user
+    result = database.get_last_update(interaction.guild.id, target.id)
+    if not result:
+        await interaction.response.send_message(
+            f"No progress saved for {target.display_name} yet."
+        )
+        return
+    text, ts = result
+    age_sec = int(time.time()) - ts
+    days = age_sec // 86400
+    hours = age_sec // 3600
+    age_str = f"{days}d" if days else f"{hours}h"
+    await interaction.response.send_message(
+        f"Last for **{target.display_name}**: “{text}” ({age_str} ago)"
     )
 
 
-async def keepalive_server() -> None:
-    """Run a tiny HTTP server to keep the Render web service awake."""
-
-    async def handle(_request):
-        return web.Response(text="ok")
-
-    app = web.Application()
-    app.router.add_get("/", handle)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    log.info("Keepalive HTTP server listening on port %d", PORT)
-
-
-async def summary_loop() -> None:
-    """Periodically check schedules and send daily recaps."""
-    await client.wait_until_ready()
-    log.info("Summary loop started")
-    while not client.is_closed():
-        try:
-            now = datetime.now(timezone.utc)
-            current_hhmm = now.strftime("%H:%M")
-            for settings in db.all_schedules():
-                # If no channel or time is set, skip
-                if not settings.reminder_channel_id or not settings.reminder_utc_time:
-                    continue
-                # Avoid sending multiple times per day
-                already_today = (
-                    settings.last_summary_at
-                    and settings.last_summary_at.astimezone(timezone.utc).date()
-                    == now.date()
-                )
-                if settings.reminder_utc_time == current_hhmm and not already_today:
-                    # Determine time window for updates: since last summary or since midnight UTC
-                    since = settings.last_summary_at or datetime.combine(
-                        now.date(), time(0, 0), tzinfo=timezone.utc
-                    )
-                    updates = db.get_updates_since(settings.guild_id, since)
-                    # Map user IDs to display names, falling back to ID string
-                    guild = client.get_guild(settings.guild_id)
-                    pretty_updates: Dict[str, List[str]] = {}
-                    if guild:
-                        for uid, items in updates.items():
-                            member = guild.get_member(uid) or await guild.fetch_member(uid)
-                            name = member.display_name if member else f"User {uid}"
-                            pretty_updates[name] = items
-                    else:
-                        pretty_updates = {str(uid): items for uid, items in updates.items()}
-                    # Generate recap text via Gemini
-                    recap = generate_daily_summary(
-                        guild.name if guild else f"Guild {settings.guild_id}",
-                        pretty_updates,
-                    )
-                    # Send to configured channel
-                    channel = client.get_channel(
-                        settings.reminder_channel_id
-                    ) or await client.fetch_channel(settings.reminder_channel_id)
-                    await channel.send(recap)
-                    db.mark_summary_sent(settings.guild_id)
-        except Exception as exc:
-            log.exception("Error in summary loop: %s", exc)
-        # Check schedules once per minute
-        await asyncio.sleep(60)
-
-
-@client.event
-async def on_ready() -> None:
-    """Triggered when the bot logs in."""
-    log.info("Logged in as %s", client.user)
-    # Start HTTP server and summary loop tasks
-    asyncio.create_task(keepalive_server())
-    asyncio.create_task(summary_loop())
-
-
-def parse_command(message: discord.Message) -> tuple[Optional[str], Optional[str]]:
-    """Parse a message to extract the command and its arguments."""
-    match = MENTION_RE.match(message.content.strip())
-    if not match:
-        return None, None
-    # Ensure the bot is being mentioned
-    if int(match.group(1)) != client.user.id:
-        return None, None
-    rest = message.content[match.end() :].strip()
-    if not rest:
-        return "help", ""
-    parts = rest.split(None, 1)
-    cmd = parts[0].lower()
-    args = parts[1] if len(parts) > 1 else ""
-    return cmd, args
-
-
-# Time format validator: ensures "HH:MM" with 24-hour clock
-TIME_RE = re.compile(r"^(?:[01]?\d|2[0-3]):[0-5]\d$")
-
-
-@client.event
-async def on_message(message: discord.Message) -> None:
-    """Handle incoming messages for commands after mention."""
-    # Ignore messages from bots or direct messages
-    if message.author.bot or not message.guild:
+@hollow_group.command(name="set_reminder_channel", description="Set recap channel")
+async def slash_set_channel(interaction: discord.Interaction) -> None:
+    if not interaction.guild or not interaction.channel:
+        await interaction.response.send_message("Guild only", ephemeral=True)
         return
-    cmd, args = parse_command(message)
-    if not cmd:
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "You need Manage Server to do that.", ephemeral=True
+        )
         return
-    # Help command
-    if cmd in ("help", "commands"):
-        await message.reply(HELP_TEXT)
+    database.set_recap_channel(interaction.guild.id, interaction.channel.id)
+    await interaction.response.send_message(
+        f"Daily recap channel set to {interaction.channel.mention}."
+    )
+
+
+@hollow_group.command(
+    name="schedule_daily_reminder", description="Schedule daily recap (UTC)"
+)
+async def slash_schedule(interaction: discord.Interaction, time: str) -> None:
+    if not interaction.guild:
+        await interaction.response.send_message("Guild only", ephemeral=True)
         return
-    # Save progress
-    if cmd == "progress":
-        content = args.strip()
-        if not content:
-            await message.reply("Usage: @HollowBot progress <what you did>")
-            return
-        db.add_progress(message.guild.id, message.author.id, content)
-        await message.add_reaction("✅")
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "You need Manage Server to do that.", ephemeral=True
+        )
         return
-    # Get last progress
-    if cmd == "get_progress":
-        # Find mentioned user other than the bot; default to author
-        target = message.author
-        for user in message.mentions:
-            if user.id != client.user.id:
-                target = user
-                break
-        result = db.get_last_progress(message.guild.id, target.id)
-        if not result:
-            await message.reply(f"No progress saved for {target.display_name} yet.")
+    if not TIME_RE.match(time):
+        await interaction.response.send_message(
+            "Give me a time like `18:00` (UTC).", ephemeral=True
+        )
+        return
+    database.set_recap_time(interaction.guild.id, time)
+    await interaction.response.send_message(
+        f"Daily recap scheduled for **{time} UTC**."
+    )
+
+
+bot.tree.add_command(hollow_group)
+
+
+@tasks.loop(minutes=1)
+async def recap_tick() -> None:
+    if not bot.user:
+        return
+    now = datetime.now(timezone.utc)
+    hhmm = now.strftime("%H:%M")
+    for guild_id, channel_id, recap_time in database.get_all_guild_configs():
+        if not channel_id or recap_time != hhmm:
+            continue
+        if last_sent.get(guild_id) == now.date():
+            continue
+        updates = database.get_updates_today_by_guild(int(guild_id))
+        guild = bot.get_guild(int(guild_id))
+        pretty: Dict[str, List[str]] = {}
+        if guild:
+            for uid, items in updates.items():
+                member = guild.get_member(int(uid)) or await guild.fetch_member(int(uid))
+                name = member.display_name if member else f"User {uid}"
+                pretty[name] = items
         else:
-            content, timestamp = result
-            ts_str = timestamp.astimezone(timezone.utc).strftime(
-                "%Y-%m-%d %H:%M UTC"
-            )
-            await message.reply(
-                f"Last for **{target.display_name}**: “{content}”  (`{ts_str}`)"
-            )
-        return
-    # Set reminder channel (admin only)
-    if cmd == "set_reminder_channel":
-        if not is_admin(message.author):
-            await message.reply("You need Manage Server to do that.")
-            return
-        db.upsert_channel(message.guild.id, message.channel.id)
-        await message.reply(
-            f"Daily recap channel set to {message.channel.mention}."
+            pretty = {uid: items for uid, items in updates.items()}
+        summary = generate_daily_summary(
+            guild.name if guild else f"Guild {guild_id}", pretty
         )
-        return
-    # Schedule daily recap (admin only)
-    if cmd == "schedule_daily_reminder":
-        if not is_admin(message.author):
-            await message.reply("You need Manage Server to do that.")
-            return
-        time_arg = args.strip()
-        if not TIME_RE.match(time_arg):
-            await message.reply("Give me a time like `18:00` (UTC).")
-            return
-        db.set_schedule(message.guild.id, time_arg)
-        await message.reply(
-            f"Daily recap scheduled for **{time_arg} UTC**."
+        channel = bot.get_channel(int(channel_id)) or await bot.fetch_channel(
+            int(channel_id)
         )
-        return
-    # Unknown command
-    await message.reply("Unknown command. Type: @HollowBot help")
+        await channel.send(summary)
+        last_sent[guild_id] = now.date()
 
 
 if __name__ == "__main__":
-    client.run(DISCORD_TOKEN)
+    bot.run(DISCORD_TOKEN)
