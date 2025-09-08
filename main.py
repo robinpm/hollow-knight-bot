@@ -1,7 +1,7 @@
 """
 Entry point for the Hollow Knight Progress Tracker Discord bot.
 
-This module initializes the Discord client, defines command handlers, and runs
+sThis module initializes the Discord client, defines command handlers, and runs
 two background tasks: a keep-alive HTTP server (for Render free tier) and a
 summary loop that triggers daily recaps using the Gemini integration.
 """
@@ -18,7 +18,7 @@ from aiohttp import web
 from database import Database
 from gemini_integration import generate_daily_summary
 
-
+from typing import Optional, Dict, List, Tuple
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("hollowbot")
