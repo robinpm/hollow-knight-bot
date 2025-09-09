@@ -66,10 +66,17 @@ class DatabaseManager:
                     recap_channel_id TEXT,
                     recap_time TEXT,
                     timezone TEXT DEFAULT 'UTC',
+                    custom_context TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Ensure custom_context column exists for older databases
+            try:
+                conn.execute("ALTER TABLE guild_config ADD COLUMN custom_context TEXT")
+            except sqlite3.OperationalError:
+                pass
             
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
@@ -99,10 +106,16 @@ class DatabaseManager:
                         recap_channel_id VARCHAR(255),
                         recap_time VARCHAR(10),
                         timezone VARCHAR(50) DEFAULT 'UTC',
+                        custom_context TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+
+                # Ensure custom_context column exists for older databases
+                cur.execute(
+                    "ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS custom_context TEXT"
+                )
                 
                 # Create indexes
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
@@ -306,3 +319,52 @@ def get_all_guild_configs() -> List[Tuple[int, Optional[int], Optional[str], str
     except Exception as e:
         log.error(f"Failed to get guild configs: {e}")
         raise DatabaseError(f"Failed to retrieve guild configs: {e}") from e
+
+
+def set_custom_context(guild_id: int, context: str) -> None:
+    """Set custom prompt context for a guild."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, custom_context) VALUES (%s, %s) "
+                        "ON CONFLICT (guild_id) DO UPDATE SET custom_context=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), context, context),
+                    )
+                    conn.commit()
+            else:
+                conn.execute(
+                    "INSERT INTO guild_config (guild_id, custom_context) VALUES (?, ?) "
+                    "ON CONFLICT(guild_id) DO UPDATE SET custom_context=excluded.custom_context, updated_at=CURRENT_TIMESTAMP",
+                    (str(guild_id), context),
+                )
+                conn.commit()
+            log.info(f"Set custom context for guild {guild_id}")
+    except Exception as e:
+        log.error(f"Failed to set custom context: {e}")
+        raise DatabaseError(f"Failed to set custom context: {e}") from e
+
+
+def get_custom_context(guild_id: int) -> str:
+    """Get custom prompt context for a guild."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT custom_context FROM guild_config WHERE guild_id=%s",
+                        (str(guild_id),),
+                    )
+                    row = cur.fetchone()
+                    return row["custom_context"] if row and row["custom_context"] else ""
+            else:
+                cur = conn.execute(
+                    "SELECT custom_context FROM guild_config WHERE guild_id=?",
+                    (str(guild_id),),
+                )
+                row = cur.fetchone()
+                return row["custom_context"] if row and row["custom_context"] else ""
+    except Exception as e:
+        log.error(f"Failed to get custom context: {e}")
+        raise DatabaseError(f"Failed to retrieve custom context: {e}") from e

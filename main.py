@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.7"
+BOT_VERSION = "1.4.8"
 
 import asyncio
 import os
@@ -70,6 +70,7 @@ from validation import (
     sanitize_mention_command,
     validate_server_name,
     validate_updates_dict,
+    validate_custom_context,
 )
 
 intents = discord.Intents.default()
@@ -128,14 +129,37 @@ async def _get_recent_messages(message: discord.Message, limit: int = 10) -> str
     return "\n".join(lines)
 
 
+def _should_respond(
+    recent: str, guild_context: str, author: str, custom_context: str
+) -> bool:
+    """Use AI to decide if the bot should reply to a message."""
+    try:
+        preamble = f"{custom_context}\n" if custom_context else ""
+        prompt = (
+            f"{preamble}Recent conversation:\n{recent}\n\n"
+            f"Recent updates from everyone:\n{guild_context}\n"
+            f"The last message was from {author}. Should HollowBot reply? Answer yes or no."
+        )
+        decision = generate_reply(prompt).strip().lower()
+        return decision.startswith("y")
+    except Exception as e:
+        log.error(f"Error deciding to respond: {e}")
+        return False
+
+
 def _build_progress_reply(guild: discord.Guild, text: str) -> str:
     """Build a progress reply with AI-generated commentary."""
     try:
         validated_text = validate_progress_text(text)
         context = _build_updates_context(guild)
+        custom_context = database.get_custom_context(guild.id)
 
         # Use direct AI call instead of conversation memory to avoid interference
-        prompt = f"Recent updates:\n{context}\nNew update: {validated_text}\n\nGive a short, snarky gamer response (1-2 sentences max) about this progress update."
+        preamble = f"{custom_context}\n" if custom_context else ""
+        prompt = (
+            f"{preamble}Recent updates:\n{context}\nNew update: {validated_text}\n\n"
+            "Give a short, snarky gamer response (1-2 sentences max) about this progress update."
+        )
         riff = generate_reply(prompt)
 
         reply = f"📝 Echo recorded: {validated_text}"
@@ -193,6 +217,7 @@ async def on_message(message: discord.Message) -> None:
                 return
 
             log.info("Mention from %s: %s", message.author.id, content)
+            custom_context = database.get_custom_context(message.guild.id)
 
             if PROGRESS_RE.search(content):
                 await handle_progress(message, content)
@@ -212,8 +237,9 @@ async def on_message(message: discord.Message) -> None:
                 user_context = f'\nYour last progress: "{text}" ({age_str} ago)'
 
             recent = await _get_recent_messages(message)
+            preamble = f"{custom_context}\n" if custom_context else ""
             prompt = (
-                f"Recent conversation:\n{recent}\n\n"
+                f"{preamble}Recent conversation:\n{recent}\n\n"
                 "Recent updates from everyone:\n"
                 f"{guild_context}{user_context}\n"
                 "Respond as HollowBot, referencing their progress if relevant. "
@@ -231,15 +257,20 @@ async def on_message(message: discord.Message) -> None:
                 log.info("Spontaneous response triggered in guild %s", message.guild.id)
                 guild_context = _build_updates_context(message.guild)
                 recent = await _get_recent_messages(message)
-                prompt = (
-                    f"Recent conversation:\n{recent}\n\n"
-                    "Recent updates from everyone:\n"
-                    f"{guild_context}\n"
-                    "Respond as HollowBot. Keep it short and gamer-like (1-2 sentences max)."
-                )
-                reply = convo_chain.predict(input=prompt)
-                if reply:
-                    await message.reply(reply)
+                custom_context = database.get_custom_context(message.guild.id)
+                if _should_respond(
+                    recent, guild_context, message.author.display_name, custom_context
+                ):
+                    preamble = f"{custom_context}\n" if custom_context else ""
+                    prompt = (
+                        f"{preamble}Recent conversation:\n{recent}\n\n"
+                        "Recent updates from everyone:\n"
+                        f"{guild_context}\n"
+                        "Respond as HollowBot. Keep it short and gamer-like (1-2 sentences max)."
+                    )
+                    reply = convo_chain.predict(input=prompt)
+                    if reply:
+                        await message.reply(reply)
 
 
     except commands.CommandError as e:
@@ -531,6 +562,67 @@ async def slash_rando_talk(
 
 
 @hollow_group.command(
+    name="custom-context",
+    description="Set custom prompt context for HollowBot in this server",
+)
+@app_commands.describe(text="Additional context for HollowBot's replies")
+async def slash_custom_context(interaction: discord.Interaction, text: str) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Only guild admins can tweak my context, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Only guild admins can tweak my context, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        validated = validate_custom_context(text)
+        database.set_custom_context(interaction.guild.id, validated)
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "Custom context updated!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "Custom context updated!",
+                ephemeral=True,
+            )
+    except ValidationError as e:
+        log.warning(f"Validation error in slash_custom_context: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(str(e), ephemeral=True)
+        else:
+            await interaction.followup.send(str(e), ephemeral=True)
+    except Exception as e:
+        log.error(f"Error in slash_custom_context: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection got to my context system. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection got to my context system. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
+@hollow_group.command(
     name="set_reminder_channel",
     description="Set the chronicle channel for daily echoes",
 )
@@ -592,6 +684,7 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "• `/hollow-bot progress <text>` - Record your progress\n"
             "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
             "• `/hollow-bot rando-talk <0-100>` - Set my random chatter chance\n"
+            "• `/hollow-bot custom-context <text>` - Set a custom prompt for this server\n"
             "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
             "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
             "• `/hollow-bot info` - Show this info\n\n"
