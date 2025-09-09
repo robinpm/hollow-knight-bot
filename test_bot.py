@@ -44,7 +44,8 @@ def test_imports():
         return False
     
     try:
-        from langchain import chain
+        from langchain.chains import ConversationChain
+        from langchain.memory import ConversationBufferMemory
         print("✅ langchain imported")
     except Exception as e:
         print(f"❌ langchain import failed: {e}")

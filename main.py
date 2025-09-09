@@ -12,8 +12,43 @@ from discord.ext import commands, tasks
 import database
 from config import config
 from gemini_integration import generate_daily_summary
-from langchain import chain as convo_chain
+from langchain.chains import ConversationChain
+from langchain.memory import ConversationBufferMemory
+from langchain_core.language_models.llms import LLM
+from gemini_integration import generate_reply
 from logger import log
+
+
+class GeminiLLM(LLM):
+    """Simple LLM wrapper for Gemini."""
+    
+    def _call(self, prompt: str, **kwargs) -> str:
+        try:
+            return generate_reply(prompt)
+        except Exception as e:
+            log.error(f"GeminiLLM error: {e}")
+            return "The Infection got to my response system. But I noted that, don't worry."
+    
+    @property
+    def _llm_type(self) -> str:
+        return "gemini"
+
+
+# Create conversation chain
+memory = ConversationBufferMemory()
+memory.chat_memory.add_ai_message(
+    "I am HollowBot, the digital echo of Hallownest's chronicler. I'm a gamer who's "
+    "lived through every boss fight, every nail upgrade, and every frustrating death "
+    "in the Abyss. I speak like a seasoned Hollow Knight player - mixing in-game lore "
+    "with real gaming experiences. I know the pain of losing 2000 geo to a Primal Aspid, "
+    "the satisfaction of finally beating NKG, and the existential dread of the Radiance fight. "
+    "I reference Hollow Knight mechanics, locations, and memes naturally. I'm supportive "
+    "but also a bit snarky about progress, like a friend who's already 112% the game. "
+    "I never break character, even when things go wrong - I'll blame it on the Infection "
+    "or a particularly nasty Shade."
+)
+
+convo_chain = ConversationChain(llm=GeminiLLM(), memory=memory)
 from validation import (
     ValidationError,
     validate_guild_id,
