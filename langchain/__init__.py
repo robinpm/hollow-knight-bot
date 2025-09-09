@@ -38,9 +38,38 @@ def _external_import(name: str):
 
 
 # Fetch classes from the real LangChain distribution.
-ConversationChain = _external_import("langchain.chains").ConversationChain
-ConversationBufferMemory = _external_import("langchain.memory").ConversationBufferMemory
-LLM = _external_import("langchain.llms.base").LLM
+try:
+    # Try newer LangChain structure first
+    ConversationChain = _external_import("langchain.chains.conversation.base").ConversationChain
+    ConversationBufferMemory = _external_import("langchain.memory.buffer").ConversationBufferMemory
+    LLM = _external_import("langchain_core.language_models.llms").LLM
+except ImportError:
+    try:
+        # Fallback to older structure
+        ConversationChain = _external_import("langchain.chains").ConversationChain
+        ConversationBufferMemory = _external_import("langchain.memory").ConversationBufferMemory
+        LLM = _external_import("langchain.llms.base").LLM
+    except ImportError:
+        # Final fallback - create minimal implementations
+        log.warning("LangChain imports failed, using fallback implementations")
+        
+        class ConversationBufferMemory:
+            def __init__(self):
+                self.chat_memory = type('obj', (object,), {'add_ai_message': lambda self, msg: None})()
+        
+        class ConversationChain:
+            def __init__(self, llm=None, memory=None):
+                self.llm = llm
+                self.memory = memory
+            
+            def predict(self, input=None, **kwargs):
+                if self.llm:
+                    return self.llm._call(input)
+                return "The Chronicler fell silent. Try again later."
+        
+        class LLM:
+            def _call(self, prompt, **kwargs):
+                return "Noted."
 
 
 class GeminiLLM(LLM):
