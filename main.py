@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.5"
+BOT_VERSION = "1.4.6"
 
 import asyncio
 import os
@@ -81,6 +81,7 @@ PROGRESS_RE = re.compile(r"\b(beat|got|found|upgraded)\b", re.I)
 last_sent: Dict[str, datetime.date] = {}
   
 SPONTANEOUS_RESPONSE_CHANCE = config.spontaneous_response_chance
+guild_spontaneous_chances: Dict[int, float] = {}
 
 
 def is_admin(member: discord.Member) -> bool:
@@ -205,7 +206,10 @@ async def on_message(message: discord.Message) -> None:
                 reply or "The echoes of Hallownest have been heard, gamer."
             )
         else:
-            if random.random() < SPONTANEOUS_RESPONSE_CHANCE:
+            chance = guild_spontaneous_chances.get(
+                message.guild.id, SPONTANEOUS_RESPONSE_CHANCE
+            )
+            if random.random() < chance:
                 log.info("Spontaneous response triggered in guild %s", message.guild.id)
                 guild_context = _build_updates_context(message.guild)
                 prompt = (
@@ -438,6 +442,75 @@ async def slash_get_progress(
 
 
 @hollow_group.command(
+    name="rando-talk",
+    description="Set chance HollowBot replies to random chatter",
+)
+@app_commands.describe(chance="Percentage chance (0-100)")
+async def slash_rando_talk(
+    interaction: discord.Interaction, chance: int
+) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Only guild admins can tweak my chatter settings, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Only guild admins can tweak my chatter settings, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        if chance < 0 or chance > 100:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Chance must be between 0 and 100, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Chance must be between 0 and 100, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        guild_spontaneous_chances[interaction.guild.id] = chance / 100
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"Spontaneous chatter set to {chance}%",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"Spontaneous chatter set to {chance}%",
+                ephemeral=True,
+            )
+    except Exception as e:
+        log.error(f"Error in slash_rando_talk: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection messed with my settings. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection messed with my settings. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
+@hollow_group.command(
     name="set_reminder_channel",
     description="Set the chronicle channel for daily echoes",
 )
@@ -498,6 +571,7 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "**Commands:**\n"
             "• `/hollow-bot progress <text>` - Record your progress\n"
             "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
+            "• `/hollow-bot rando-talk <0-100>` - Set my random chatter chance\n"
             "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
             "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
             "• `/hollow-bot info` - Show this info\n\n"
