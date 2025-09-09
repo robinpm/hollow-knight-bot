@@ -1,13 +1,24 @@
 """Discord bot that tracks Hollow Knight progress and posts recaps."""
 
+# AI INSTRUCTION: ALWAYS increment BOT_VERSION when making any changes to this file
+# Versioning rules:
+# - Increment patch version (1.1 -> 1.2) for bug fixes, small features, or improvements
+# - Increment minor version (1.x -> 2.0) for major new features or breaking changes
+# - This version is used in /hollow-bot info command and health check endpoint
+# Bot version - increment this for each release
+BOT_VERSION = "1.1"
+
+import asyncio
 import re
 import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+import os
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from aiohttp import web
 
 import database
 from config import config
@@ -187,6 +198,11 @@ async def handle_progress(message: discord.Message, text: str) -> None:
         last = database.get_last_update(message.guild.id, message.author.id)
         database.add_update(message.guild.id, message.author.id, validated_text, now_ts)
         
+        # Debug: Verify the update was added
+        log.info(f"Added progress for user {message.author.id} in guild {message.guild.id}: {validated_text}")
+        verify = database.get_last_update(message.guild.id, message.author.id)
+        log.info(f"Verification - last update: {verify}")
+        
         reply = _build_progress_reply(message.guild, validated_text)
         await message.reply(reply)
         
@@ -227,6 +243,11 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
         now_ts = int(time.time())
         last = database.get_last_update(interaction.guild.id, interaction.user.id)
         database.add_update(interaction.guild.id, interaction.user.id, validated_text, now_ts)
+        
+        # Debug: Verify the update was added
+        log.info(f"Added progress for user {interaction.user.id} in guild {interaction.guild.id}: {validated_text}")
+        verify = database.get_last_update(interaction.guild.id, interaction.user.id)
+        log.info(f"Verification - last update: {verify}")
         
         reply = _build_progress_reply(interaction.guild, validated_text)
         
@@ -272,7 +293,9 @@ async def slash_get_progress(
             return
         
         target = user or interaction.user
+        log.info(f"Getting progress for user {target.id} in guild {interaction.guild.id}")
         result = database.get_last_update(interaction.guild.id, target.id)
+        log.info(f"Database returned: {result}")
         if not result:
             if not interaction.response.is_done():
                 await interaction.response.send_message(
@@ -347,32 +370,23 @@ async def slash_set_channel(interaction: discord.Interaction) -> None:
 async def slash_info(interaction: discord.Interaction) -> None:
     """Show bot information and version."""
     try:
+        info_message = (
+            f"**HollowBot v{BOT_VERSION}** 🎮\n\n"
+            "I'm a gamer who's beaten Hollow Knight and helps track your Hallownest journey!\n\n"
+            "**Commands:**\n"
+            "• `/hollow-bot progress <text>` - Record your progress\n"
+            "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
+            "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
+            "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
+            "• `/hollow-bot info` - Show this info\n\n"
+            "**Chat:** Just @ me to talk! I remember our conversations and give gamer advice.\n\n"
+            "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
+        )
+        
         if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "**HollowBot v1.0** 🎮\n\n"
-                "I'm a gamer who's beaten Hollow Knight and helps track your Hallownest journey!\n\n"
-                "**Commands:**\n"
-                "• `/hollow-bot progress <text>` - Record your progress\n"
-                "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
-                "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
-                "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
-                "• `/hollow-bot info` - Show this info\n\n"
-                "**Chat:** Just @ me to talk! I remember our conversations and give gamer advice.\n\n"
-                "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
-            )
+            await interaction.response.send_message(info_message)
         else:
-            await interaction.followup.send(
-                "**HollowBot v1.0** 🎮\n\n"
-                "I'm a gamer who's beaten Hollow Knight and helps track your Hallownest journey!\n\n"
-                "**Commands:**\n"
-                "• `/hollow-bot progress <text>` - Record your progress\n"
-                "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
-                "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
-                "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
-                "• `/hollow-bot info` - Show this info\n\n"
-                "**Chat:** Just @ me to talk! I remember our conversations and give gamer advice.\n\n"
-                "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
-            )
+            await interaction.followup.send(info_message)
     except Exception as e:
         log.error(f"Error in slash_info: {e}")
         if not interaction.response.is_done():
@@ -514,10 +528,42 @@ async def recap_tick() -> None:
         log.error(f"Error in recap_tick: {e}")
 
 
-if __name__ == "__main__":
+async def health_check(request):
+    """Simple health check endpoint for Render."""
+    return web.Response(text=f"HollowBot v{BOT_VERSION} is running! 🎮", status=200)
+
+
+async def start_web_server():
+    """Start a simple HTTP server for Render port binding."""
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+    
+    port = int(os.environ.get('PORT', 8000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    log.info(f"HTTP server started on port {port}")
+
+
+async def main():
+    """Main function to start both the bot and web server."""
+    # Start the web server in the background
+    await start_web_server()
+    
+    # Start the Discord bot
     try:
         log.info("Starting HollowBot...")
-        bot.run(config.discord_token)
+        await bot.start(config.discord_token)
     except Exception as e:
         log.error(f"Failed to start bot: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        log.error(f"Failed to start application: {e}")
         raise
