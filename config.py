@@ -9,18 +9,14 @@ from typing import Optional
 class BotConfig:
     """Bot configuration settings."""
     
-    # Discord settings
+    # Required settings (no defaults)
     discord_token: str
-    command_prefix: Optional[str] = None
-    
-    # Database settings
-    database_path: str = "bot.sqlite3"
-    
-    # AI settings
     google_api_key: str
-    gemini_model: str = "gemini-2.0-flash"
     
-    # Bot behavior
+    # Optional settings (with defaults)
+    command_prefix: Optional[str] = None
+    database_path: str = "bot.sqlite3"
+    gemini_model: str = "gemini-2.0-flash"
     log_level: str = "INFO"
     max_retries: int = 3
     request_timeout: int = 30
