@@ -11,11 +11,10 @@ from discord.ext import commands, tasks
 
 import database
 from config import config
-from gemini_integration import generate_daily_summary
+from gemini_integration import generate_daily_summary, generate_reply
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory
 from langchain_core.language_models.llms import LLM
-from gemini_integration import generate_reply
 from logger import log
 
 
@@ -37,15 +36,11 @@ class GeminiLLM(LLM):
 # Create conversation chain
 memory = ConversationBufferMemory()
 memory.chat_memory.add_ai_message(
-    "I am HollowBot, the digital echo of Hallownest's chronicler. I'm a gamer who's "
-    "lived through every boss fight, every nail upgrade, and every frustrating death "
-    "in the Abyss. I speak like a seasoned Hollow Knight player - mixing in-game lore "
-    "with real gaming experiences. I know the pain of losing 2000 geo to a Primal Aspid, "
-    "the satisfaction of finally beating NKG, and the existential dread of the Radiance fight. "
-    "I reference Hollow Knight mechanics, locations, and memes naturally. I'm supportive "
-    "but also a bit snarky about progress, like a friend who's already 112% the game. "
-    "I never break character, even when things go wrong - I'll blame it on the Infection "
-    "or a particularly nasty Shade."
+    "I am HollowBot, a gamer who's beaten Hollow Knight. I speak like a seasoned player "
+    "who knows the pain of losing geo to Primal Aspids and the satisfaction of beating NKG. "
+    "Keep responses SHORT and to the point - 1-2 sentences max. Be supportive but snarky, "
+    "like a friend who's already 112% the game. Reference Hollow Knight mechanics and memes "
+    "naturally. Never break character - blame issues on the Infection or a nasty Shade."
 )
 
 convo_chain = ConversationChain(llm=GeminiLLM(), memory=memory)
@@ -109,8 +104,9 @@ def _build_progress_reply(guild: discord.Guild, text: str) -> str:
         validated_text = validate_progress_text(text)
         context = _build_updates_context(guild)
         
-        prompt = f"Recent updates:\n{context}\nNew update: {validated_text}"
-        riff = convo_chain.predict(input=prompt)
+        # Use direct AI call instead of conversation memory to avoid interference
+        prompt = f"Recent updates:\n{context}\nNew update: {validated_text}\n\nGive a short, snarky gamer response (1-2 sentences max) about this progress update."
+        riff = generate_reply(prompt)
         
         reply = f"📝 Echo recorded: {validated_text}"
         if riff and riff not in ["Noted.", "Noted, gamer. The echoes of Hallownest have been recorded."]:
@@ -214,7 +210,8 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
     """Handle slash command for progress updates."""
     try:
         if not interaction.guild:
-            await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
             return
         
         # Validate inputs
@@ -227,7 +224,11 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
         database.add_update(interaction.guild.id, interaction.user.id, validated_text, now_ts)
         
         reply = _build_progress_reply(interaction.guild, validated_text)
-        await interaction.response.send_message(reply)
+        
+        if not interaction.response.is_done():
+            await interaction.response.send_message(reply)
+        else:
+            await interaction.followup.send(reply)
         
         # Check for long absence
         if last:
@@ -237,78 +238,156 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
                 
     except ValidationError as e:
         log.warning(f"Validation error in slash_progress: {e}")
-        await interaction.response.send_message("Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!", ephemeral=True)
+        else:
+            await interaction.followup.send("Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!", ephemeral=True)
     except database.DatabaseError as e:
         log.error(f"Database error in slash_progress: {e}")
-        await interaction.response.send_message("The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!", ephemeral=True)
+        else:
+            await interaction.followup.send("The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!", ephemeral=True)
     except Exception as e:
         log.error(f"Unexpected error in slash_progress: {e}")
-        await interaction.response.send_message("The Infection got to my progress tracking system. But I'll try to remember that, gamer!", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("The Infection got to my progress tracking system. But I'll try to remember that, gamer!", ephemeral=True)
+        else:
+            await interaction.followup.send("The Infection got to my progress tracking system. But I'll try to remember that, gamer!", ephemeral=True)
 
 
 @hollow_group.command(name="get_progress", description="Check the latest echo from a gamer's journey")
 async def slash_get_progress(
     interaction: discord.Interaction, user: Optional[discord.Member] = None
 ) -> None:
-    if not interaction.guild:
-        await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
-        return
-    target = user or interaction.user
-    result = database.get_last_update(interaction.guild.id, target.id)
-    if not result:
-        await interaction.response.send_message(
-            f"No echoes recorded for {target.display_name} yet. Time to start that Hallownest journey, gamer!"
-        )
-        return
-    text, ts = result
-    age_sec = int(time.time()) - ts
-    days = age_sec // 86400
-    hours = age_sec // 3600
-    age_str = f"{days}d" if days else f"{hours}h"
-    await interaction.response.send_message(
-        f"📜 Last echo from **{target.display_name}**: \"{text}\" ({age_str} ago)"
-    )
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
+            return
+        
+        target = user or interaction.user
+        result = database.get_last_update(interaction.guild.id, target.id)
+        if not result:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"No echoes recorded for {target.display_name} yet. Time to start that Hallownest journey, gamer!"
+                )
+            else:
+                await interaction.followup.send(
+                    f"No echoes recorded for {target.display_name} yet. Time to start that Hallownest journey, gamer!"
+                )
+            return
+        
+        text, ts = result
+        age_sec = int(time.time()) - ts
+        days = age_sec // 86400
+        hours = age_sec // 3600
+        age_str = f"{days}d" if days else f"{hours}h"
+        
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"📜 Last echo from **{target.display_name}**: \"{text}\" ({age_str} ago)"
+            )
+        else:
+            await interaction.followup.send(
+                f"📜 Last echo from **{target.display_name}**: \"{text}\" ({age_str} ago)"
+            )
+    except Exception as e:
+        log.error(f"Error in slash_get_progress: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message("The Infection got to my memory system. Try again later, gamer!", ephemeral=True)
+        else:
+            await interaction.followup.send("The Infection got to my memory system. Try again later, gamer!", ephemeral=True)
 
 
 @hollow_group.command(name="set_reminder_channel", description="Set the chronicle channel for daily echoes")
 async def slash_set_channel(interaction: discord.Interaction) -> None:
-    if not interaction.guild or not interaction.channel:
-        await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
-        return
-    if not is_admin(interaction.user):
-        await interaction.response.send_message(
-            "Gamer, you need Manage Server permissions to set up the chronicle channel. The Infection won't let just anyone mess with the echoes.", ephemeral=True
-        )
-        return
-    database.set_recap_channel(interaction.guild.id, interaction.channel.id)
-    await interaction.response.send_message(
-        f"📜 Chronicle channel set to {interaction.channel.mention}. The echoes of Hallownest will be recorded here daily, gamer!"
-    )
+    try:
+        if not interaction.guild or not interaction.channel:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
+            return
+        
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, you need Manage Server permissions to set up the chronicle channel. The Infection won't let just anyone mess with the echoes.", ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    "Gamer, you need Manage Server permissions to set up the chronicle channel. The Infection won't let just anyone mess with the echoes.", ephemeral=True
+                )
+            return
+        
+        database.set_recap_channel(interaction.guild.id, interaction.channel.id)
+        
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"📜 Chronicle channel set to {interaction.channel.mention}. The echoes of Hallownest will be recorded here daily, gamer!"
+            )
+        else:
+            await interaction.followup.send(
+                f"📜 Chronicle channel set to {interaction.channel.mention}. The echoes of Hallownest will be recorded here daily, gamer!"
+            )
+    except Exception as e:
+        log.error(f"Error in slash_set_channel: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message("The Infection got to my channel setup system. Try again later, gamer!", ephemeral=True)
+        else:
+            await interaction.followup.send("The Infection got to my channel setup system. Try again later, gamer!", ephemeral=True)
 
 
 @hollow_group.command(
     name="schedule_daily_reminder", description="Schedule when the chronicle echoes daily (UTC)"
 )
 async def slash_schedule(interaction: discord.Interaction, time: str) -> None:
-    if not interaction.guild:
-        await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
-        return
-    if not is_admin(interaction.user):
-        await interaction.response.send_message(
-            "Gamer, you need Manage Server permissions to schedule the chronicle. The Infection won't let just anyone mess with the echoes.", ephemeral=True
-        )
-        return
     try:
-        validated_time = validate_time_format(time)
-    except ValidationError as e:
-        await interaction.response.send_message(
-            f"Gamer, {e}. Even the Pale King had better time management than that!", ephemeral=True
-        )
-        return
-    database.set_recap_time(interaction.guild.id, validated_time)
-    await interaction.response.send_message(
-        f"⏰ Chronicle scheduled for **{validated_time} UTC**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
-    )
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!", ephemeral=True)
+            return
+        
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, you need Manage Server permissions to schedule the chronicle. The Infection won't let just anyone mess with the echoes.", ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    "Gamer, you need Manage Server permissions to schedule the chronicle. The Infection won't let just anyone mess with the echoes.", ephemeral=True
+                )
+            return
+        
+        try:
+            validated_time = validate_time_format(time)
+        except ValidationError as e:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"Gamer, {e}. Even the Pale King had better time management than that!", ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"Gamer, {e}. Even the Pale King had better time management than that!", ephemeral=True
+                )
+            return
+        
+        database.set_recap_time(interaction.guild.id, validated_time)
+        
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"⏰ Chronicle scheduled for **{validated_time} UTC**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
+            )
+        else:
+            await interaction.followup.send(
+                f"⏰ Chronicle scheduled for **{validated_time} UTC**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
+            )
+    except Exception as e:
+        log.error(f"Error in slash_schedule: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message("The Infection got to my scheduling system. Try again later, gamer!", ephemeral=True)
+        else:
+            await interaction.followup.send("The Infection got to my scheduling system. Try again later, gamer!", ephemeral=True)
 
 
 bot.tree.add_command(hollow_group)

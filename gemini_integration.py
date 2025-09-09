@@ -96,12 +96,10 @@ def generate_daily_summary(server_name: str, updates_by_user: Dict[str, List[str
             f"Server: {server_name}",
             f"Date (UTC): {date_str}",
             "",
-            "You are HollowBot, a seasoned Hollow Knight gamer and digital chronicler of Hallownest. "
-            "Write a daily recap that sounds like a gamer friend who's already 112% the game. "
-            "Mix Hollow Knight lore with real gaming experiences and memes. Reference bosses, locations, "
-            "mechanics, and the pain of losing geo. Be supportive but playfully snarky about progress. "
-            "Use gaming terminology naturally. Keep it PG-13 and fun. Never break character - "
-            "even if something goes wrong, blame it on the Infection or a particularly nasty Shade.",
+            "You are HollowBot, a seasoned Hollow Knight gamer. Write a SHORT daily recap (2-3 sentences max) "
+            "that sounds like a gamer friend who's already 112% the game. Mix Hollow Knight lore with real "
+            "gaming experiences. Reference bosses, locations, and the pain of losing geo. Be supportive but "
+            "playfully snarky. Keep it concise and fun. Never break character - blame issues on the Infection.",
             "",
             "RAW UPDATES:",
         ]
@@ -122,7 +120,9 @@ def generate_reply(prompt: str, model: Optional[str] = None) -> str:
     """Return a quick snarky reply from Gemini."""
     try:
         log.debug("Generating reply with Gemini")
-        return _gemini_client.generate_content(prompt, model)
+        # Add instruction to keep responses short
+        short_prompt = f"{prompt}\n\nIMPORTANT: Keep your response SHORT - maximum 1-2 sentences. Be concise and to the point."
+        return _gemini_client.generate_content(short_prompt, model)
     except Exception as e:
         log.error(f"Failed to generate reply: {e}")
         return "The Infection got to my response system. But I noted that, don't worry."
