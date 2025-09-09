@@ -70,11 +70,6 @@ def is_admin(member: discord.Member) -> bool:
     return perms.administrator or perms.manage_guild or perms.manage_channels
 
 
-def _parse_mention_command(content: str) -> tuple[bool, str]:
-    """Return (mentioned, rest_of_message)."""
-    return sanitize_mention_command(content)
-
-
 def _build_updates_context(guild: discord.Guild) -> str:
     """Build context string from today's updates."""
     try:
@@ -140,21 +135,31 @@ async def on_message(message: discord.Message) -> None:
         if message.author.bot or not message.guild or not bot.user:
             return
         
-        mentioned, rest = _parse_mention_command(message.content.strip())
-        if not mentioned or message.mentions[0].id != bot.user.id:
+        # Only respond to @ mentions, not commands
+        if not message.mentions or bot.user not in message.mentions:
             return
         
-        if not rest:
+        # Extract the message content after the mention
+        content = message.content.strip()
+        # Remove the mention from the content
+        for mention in message.mentions:
+            content = content.replace(f"<@!{mention.id}>", "").replace(f"<@{mention.id}>", "")
+        content = content.strip()
+        
+        if not content:
+            await message.reply("Hey gamer! What's up? Ready to talk about your Hallownest journey?")
             return
 
-        log.info("Mention from %s: %s", message.author.id, rest)
+        log.info("Mention from %s: %s", message.author.id, content)
 
-        if PROGRESS_RE.search(rest):
-            await handle_progress(message, rest)
+        # Check if it's a progress update
+        if PROGRESS_RE.search(content):
+            await handle_progress(message, content)
             return
 
+        # Regular chat response
         context = _build_updates_context(message.guild)
-        prompt = f"Recent updates:\n{context}\nUser said: {rest}"
+        prompt = f"Recent updates:\n{context}\nUser said: {content}"
         reply = convo_chain.predict(input=prompt)
         await message.reply(reply or "The echoes of Hallownest have been heard, gamer.")
         
@@ -336,6 +341,44 @@ async def slash_set_channel(interaction: discord.Interaction) -> None:
             await interaction.response.send_message("The Infection got to my channel setup system. Try again later, gamer!", ephemeral=True)
         else:
             await interaction.followup.send("The Infection got to my channel setup system. Try again later, gamer!", ephemeral=True)
+
+
+@hollow_group.command(name="info", description="Get info about HollowBot")
+async def slash_info(interaction: discord.Interaction) -> None:
+    """Show bot information and version."""
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "**HollowBot v1.0** 🎮\n\n"
+                "I'm a gamer who's beaten Hollow Knight and helps track your Hallownest journey!\n\n"
+                "**Commands:**\n"
+                "• `/hollow-bot progress <text>` - Record your progress\n"
+                "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
+                "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
+                "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
+                "• `/hollow-bot info` - Show this info\n\n"
+                "**Chat:** Just @ me to talk! I remember our conversations and give gamer advice.\n\n"
+                "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
+            )
+        else:
+            await interaction.followup.send(
+                "**HollowBot v1.0** 🎮\n\n"
+                "I'm a gamer who's beaten Hollow Knight and helps track your Hallownest journey!\n\n"
+                "**Commands:**\n"
+                "• `/hollow-bot progress <text>` - Record your progress\n"
+                "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
+                "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
+                "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
+                "• `/hollow-bot info` - Show this info\n\n"
+                "**Chat:** Just @ me to talk! I remember our conversations and give gamer advice.\n\n"
+                "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
+            )
+    except Exception as e:
+        log.error(f"Error in slash_info: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message("The Infection got to my info system. Try again later, gamer!", ephemeral=True)
+        else:
+            await interaction.followup.send("The Infection got to my info system. Try again later, gamer!", ephemeral=True)
 
 
 @hollow_group.command(
