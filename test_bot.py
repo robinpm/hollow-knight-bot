@@ -76,15 +76,22 @@ def test_validation():
     print("\nTesting validation...")
     
     try:
-        from validation import validate_progress_text, validate_time_format
-        
+        from validation import (
+            validate_progress_text,
+            validate_time_format,
+            validate_custom_context,
+        )
+
         # Test valid inputs
         result = validate_progress_text("Beat the Mantis Lords!")
         print(f"✅ Valid progress text: {result}")
-        
+
         result = validate_time_format("18:30")
         print(f"✅ Valid time format: {result}")
-        
+
+        result = validate_custom_context("Speak like Zote")
+        print(f"✅ Valid custom context: {result}")
+
         # Test invalid inputs
         try:
             validate_progress_text("")
@@ -92,14 +99,21 @@ def test_validation():
             return False
         except:
             print("✅ Correctly rejected empty text")
-        
+
         try:
             validate_time_format("25:00")
             print("❌ Should have failed on invalid time")
             return False
         except:
             print("✅ Correctly rejected invalid time")
-        
+
+        try:
+            validate_custom_context("")
+            print("❌ Should have failed on empty context")
+            return False
+        except:
+            print("✅ Correctly rejected empty context")
+
         return True
     except Exception as e:
         print(f"❌ Validation test failed: {e}")

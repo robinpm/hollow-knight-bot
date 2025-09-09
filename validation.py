@@ -158,3 +158,19 @@ def validate_updates_dict(updates_by_user: dict) -> dict:
             validated[user.strip()] = validated_updates
     
     return validated
+
+
+def validate_custom_context(text: str) -> str:
+    """Validate custom context text."""
+    if not isinstance(text, str):
+        raise ValidationError("Custom context must be a string")
+
+    text = text.strip()
+
+    if not text:
+        raise ValidationError("Custom context cannot be empty")
+
+    if len(text) > 1000:
+        raise ValidationError("Custom context is too long (max 1000 characters)")
+
+    return text
