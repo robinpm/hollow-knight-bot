@@ -4,6 +4,14 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+# Load .env file for local development
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not installed, that's fine for production
+    pass
+
 
 @dataclass
 class BotConfig:
@@ -48,8 +56,9 @@ class BotConfig:
         if not self.discord_token:
             raise ValueError("Discord token is required")
         
-        if not self.google_api_key:
-            raise ValueError("Google API key is required")
+        # Only validate API key if it's not a dummy key
+        if not self.google_api_key or self.google_api_key == "dummy-key-for-testing":
+            print("WARNING: GEMINI_API_KEY not set, AI features will be limited")
         
         if self.max_retries < 1:
             raise ValueError("max_retries must be at least 1")

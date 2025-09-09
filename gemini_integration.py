@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from google import genai
+import google.generativeai as genai
 
 from config import config
 from logger import log
@@ -22,16 +22,31 @@ class GeminiClient:
         self.model = model or config.gemini_model
         self.max_retries = max_retries or config.max_retries
         self.timeout = timeout or config.request_timeout
-        self._client = genai.Client()
+        
+        # Only initialize client if we have a real API key
+        if config.google_api_key and config.google_api_key != "dummy-key-for-testing":
+            try:
+                genai.configure(api_key=config.google_api_key)
+                self._client = genai
+            except Exception as e:
+                log.warning(f"Failed to initialize Gemini client: {e}")
+                self._client = None
+        else:
+            self._client = None
     
     def generate_content(self, prompt: str, model: Optional[str] = None) -> str:
         """Generate content with retry logic and proper error handling."""
+        # Return fallback if no client available
+        if not self._client:
+            return self._get_fallback_response()
+        
         model = model or self.model
         
         for attempt in range(self.max_retries):
             try:
                 log.debug(f"Generating content with Gemini (attempt {attempt + 1}/{self.max_retries})")
-                resp = self._client.models.generate_content(model=model, contents=prompt)
+                model_instance = self._client.GenerativeModel(model)
+                resp = model_instance.generate_content(prompt)
                 
                 if not resp or not resp.text:
                     log.warning("Empty response from Gemini")
