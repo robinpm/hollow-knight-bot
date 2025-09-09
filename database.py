@@ -1,80 +1,148 @@
-"""SQLite helpers for tracking Hollow Knight progress."""
+"""Database layer for Hollow Knight bot with SQLite and PostgreSQL support."""
 
+import logging
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from config import config
-from logger import log
+
+log = logging.getLogger(__name__)
 
 
 class DatabaseError(Exception):
-    """Custom exception for database operations."""
+    """Database operation error."""
     pass
 
 
 class DatabaseManager:
     """Manages database connections and operations."""
     
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        self._initialize_database()
+    def __init__(self):
+        self._use_postgres = bool(config.database_url)
+        if self._use_postgres:
+            log.info("Using PostgreSQL database")
+            self._init_postgres()
+        else:
+            log.info("Using SQLite database")
+            self._init_sqlite()
     
-    def _initialize_database(self) -> None:
-        """Initialize database tables and indexes."""
+    def _init_sqlite(self):
+        """Initialize SQLite database."""
+        self._db_path = config.database_path
+        self._ensure_sqlite_tables()
+    
+    def _init_postgres(self):
+        """Initialize PostgreSQL database."""
         try:
-            with self.get_connection() as conn:
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS progress (
-                        guild_id TEXT NOT NULL,
-                        user_id TEXT NOT NULL,
-                        update_text TEXT NOT NULL,
-                        ts INTEGER NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )"""
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            self._psycopg2 = psycopg2
+            self._RealDictCursor = RealDictCursor
+            self._ensure_postgres_tables()
+        except ImportError:
+            raise DatabaseError("psycopg2-binary is required for PostgreSQL support")
+    
+    def _ensure_sqlite_tables(self):
+        """Create SQLite tables if they don't exist."""
+        with self.get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS progress (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    update_text TEXT NOT NULL,
+                    ts INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS guild_config (
-                        guild_id TEXT PRIMARY KEY,
-                        recap_channel_id TEXT,
-                        recap_time_utc TEXT,
+            """)
+            
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS guild_config (
+                    guild_id TEXT PRIMARY KEY,
+                    recap_channel_id TEXT,
+                    recap_time TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Create indexes
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_ts ON progress(ts)")
+            conn.commit()
+            log.info("SQLite database initialized successfully")
+    
+    def _ensure_postgres_tables(self):
+        """Create PostgreSQL tables if they don't exist."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS progress (
+                        id SERIAL PRIMARY KEY,
+                        guild_id VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(255) NOT NULL,
+                        update_text TEXT NOT NULL,
+                        ts BIGINT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )"""
-                )
-                conn.execute(
-                    """CREATE INDEX IF NOT EXISTS idx_progress_guild_user 
-                       ON progress (guild_id, user_id, ts DESC)"""
-                )
-                conn.execute(
-                    """CREATE INDEX IF NOT EXISTS idx_progress_timestamp 
-                       ON progress (ts)"""
-                )
-                log.info("Database initialized successfully")
-        except sqlite3.Error as e:
-            log.error(f"Failed to initialize database: {e}")
-            raise DatabaseError(f"Database initialization failed: {e}") from e
+                    )
+                """)
+                
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS guild_config (
+                        guild_id VARCHAR(255) PRIMARY KEY,
+                        recap_channel_id VARCHAR(255),
+                        recap_time VARCHAR(10),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Create indexes
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_ts ON progress(ts)")
+                conn.commit()
+                log.info("PostgreSQL database initialized successfully")
     
     @contextmanager
     def get_connection(self):
-        """Get a database connection with proper error handling."""
-        conn = None
-        try:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON")
-            yield conn
-        except sqlite3.Error as e:
-            log.error(f"Database connection error: {e}")
-            raise DatabaseError(f"Database operation failed: {e}") from e
-        finally:
-            if conn:
-                conn.close()
+        """Get database connection with proper error handling."""
+        if self._use_postgres:
+            conn = None
+            try:
+                conn = self._psycopg2.connect(
+                    config.database_url,
+                    cursor_factory=self._RealDictCursor
+                )
+                yield conn
+            except Exception as e:
+                if conn:
+                    conn.rollback()
+                log.error(f"PostgreSQL connection error: {e}")
+                raise DatabaseError(f"Database connection failed: {e}") from e
+            finally:
+                if conn:
+                    conn.close()
+        else:
+            conn = None
+            try:
+                conn = sqlite3.connect(self._db_path)
+                conn.row_factory = sqlite3.Row
+                yield conn
+            except Exception as e:
+                log.error(f"SQLite connection error: {e}")
+                raise DatabaseError(f"Database connection failed: {e}") from e
+            finally:
+                if conn:
+                    conn.close()
 
 
 # Global database manager instance
-_db_manager = DatabaseManager(config.database_path)
+_db_manager = DatabaseManager()
 
 
 def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
@@ -87,12 +155,21 @@ def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
     
     try:
         with _db_manager.get_connection() as conn:
-            conn.execute(
-                "INSERT INTO progress (guild_id, user_id, update_text, ts) VALUES (?, ?, ?, ?)",
-                (str(guild_id), str(user_id), text.strip(), ts),
-            )
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO progress (guild_id, user_id, update_text, ts) VALUES (%s, %s, %s, %s)",
+                        (str(guild_id), str(user_id), text.strip(), ts),
+                    )
+                    conn.commit()
+            else:
+                conn.execute(
+                    "INSERT INTO progress (guild_id, user_id, update_text, ts) VALUES (?, ?, ?, ?)",
+                    (str(guild_id), str(user_id), text.strip(), ts),
+                )
+                conn.commit()
             log.info(f"Added progress update for guild {guild_id}, user {user_id}")
-    except sqlite3.Error as e:
+    except Exception as e:
         log.error(f"Failed to add update: {e}")
         raise DatabaseError(f"Failed to add progress update: {e}") from e
 
@@ -101,13 +178,22 @@ def get_last_update(guild_id: int, user_id: int) -> Optional[Tuple[str, int]]:
     """Return the most recent update for a user in a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            cur = conn.execute(
-                "SELECT update_text, ts FROM progress WHERE guild_id=? AND user_id=? ORDER BY ts DESC LIMIT 1",
-                (str(guild_id), str(user_id)),
-            )
-            row = cur.fetchone()
-            return (row["update_text"], row["ts"]) if row else None
-    except sqlite3.Error as e:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT update_text, ts FROM progress WHERE guild_id=%s AND user_id=%s ORDER BY ts DESC LIMIT 1",
+                        (str(guild_id), str(user_id)),
+                    )
+                    row = cur.fetchone()
+                    return (row["update_text"], row["ts"]) if row else None
+            else:
+                cur = conn.execute(
+                    "SELECT update_text, ts FROM progress WHERE guild_id=? AND user_id=? ORDER BY ts DESC LIMIT 1",
+                    (str(guild_id), str(user_id)),
+                )
+                row = cur.fetchone()
+                return (row["update_text"], row["ts"]) if row else None
+    except Exception as e:
         log.error(f"Failed to get last update: {e}")
         raise DatabaseError(f"Failed to retrieve last update: {e}") from e
 
@@ -121,97 +207,99 @@ def get_updates_today_by_guild(guild_id: int) -> Dict[str, List[str]]:
         start_ts = int(start_of_day.timestamp())
         
         with _db_manager.get_connection() as conn:
-            cur = conn.execute(
-                "SELECT user_id, update_text FROM progress WHERE guild_id=? AND ts>=? ORDER BY ts",
-                (str(guild_id), start_ts),
-            )
-            updates: Dict[str, List[str]] = {}
-            for row in cur.fetchall():
-                updates.setdefault(row["user_id"], []).append(row["update_text"])
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT user_id, update_text FROM progress WHERE guild_id=%s AND ts>=%s ORDER BY ts DESC",
+                        (str(guild_id), start_ts),
+                    )
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT user_id, update_text FROM progress WHERE guild_id=? AND ts>=? ORDER BY ts DESC",
+                    (str(guild_id), start_ts),
+                )
+                rows = cur.fetchall()
             
-            log.debug(f"Retrieved {len(updates)} users with updates for guild {guild_id}")
-            return updates
-    except sqlite3.Error as e:
+            updates_by_user: Dict[str, List[str]] = {}
+            for row in rows:
+                user_id = row["user_id"]
+                if user_id not in updates_by_user:
+                    updates_by_user[user_id] = []
+                updates_by_user[user_id].append(row["update_text"])
+            
+            return updates_by_user
+    except Exception as e:
         log.error(f"Failed to get today's updates: {e}")
         raise DatabaseError(f"Failed to retrieve today's updates: {e}") from e
 
 
 def set_recap_channel(guild_id: int, channel_id: int) -> None:
-    """Persist the channel to post recaps in."""
+    """Set the recap channel for a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            conn.execute(
-                """INSERT INTO guild_config (guild_id, recap_channel_id, updated_at) 
-                   VALUES (?, ?, CURRENT_TIMESTAMP)
-                   ON CONFLICT(guild_id) DO UPDATE SET 
-                   recap_channel_id=excluded.recap_channel_id,
-                   updated_at=CURRENT_TIMESTAMP""",
-                (str(guild_id), str(channel_id)),
-            )
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, recap_channel_id) VALUES (%s, %s) ON CONFLICT (guild_id) DO UPDATE SET recap_channel_id=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), str(channel_id), str(channel_id)),
+                    )
+                    conn.commit()
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO guild_config (guild_id, recap_channel_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    (str(guild_id), str(channel_id)),
+                )
+                conn.commit()
             log.info(f"Set recap channel for guild {guild_id} to {channel_id}")
-    except sqlite3.Error as e:
+    except Exception as e:
         log.error(f"Failed to set recap channel: {e}")
         raise DatabaseError(f"Failed to set recap channel: {e}") from e
 
 
-def set_recap_time(guild_id: int, hhmm: str) -> None:
-    """Persist the UTC time for daily recaps (format HH:MM)."""
-    # Validate time format
-    if not hhmm or len(hhmm) != 5 or hhmm[2] != ':':
-        raise ValueError("Time must be in HH:MM format")
-    
-    try:
-        hour, minute = hhmm.split(':')
-        hour_int, minute_int = int(hour), int(minute)
-        if not (0 <= hour_int <= 23 and 0 <= minute_int <= 59):
-            raise ValueError("Invalid time values")
-    except ValueError as e:
-        raise ValueError(f"Invalid time format: {e}") from e
-    
+def set_recap_time(guild_id: int, time_str: str) -> None:
+    """Set the recap time for a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            conn.execute(
-                """INSERT INTO guild_config (guild_id, recap_time_utc, updated_at) 
-                   VALUES (?, ?, CURRENT_TIMESTAMP)
-                   ON CONFLICT(guild_id) DO UPDATE SET 
-                   recap_time_utc=excluded.recap_time_utc,
-                   updated_at=CURRENT_TIMESTAMP""",
-                (str(guild_id), hhmm),
-            )
-            log.info(f"Set recap time for guild {guild_id} to {hhmm}")
-    except sqlite3.Error as e:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, recap_time) VALUES (%s, %s) ON CONFLICT (guild_id) DO UPDATE SET recap_time=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), time_str, time_str),
+                    )
+                    conn.commit()
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO guild_config (guild_id, recap_time, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    (str(guild_id), time_str),
+                )
+                conn.commit()
+            log.info(f"Set recap time for guild {guild_id} to {time_str}")
+    except Exception as e:
         log.error(f"Failed to set recap time: {e}")
         raise DatabaseError(f"Failed to set recap time: {e}") from e
 
 
-def get_all_guild_configs() -> List[Tuple[str, Optional[str], Optional[str]]]:
-    """Return all guild configs."""
+def get_all_guild_configs() -> List[Tuple[int, Optional[int], Optional[str]]]:
+    """Return all guild configurations."""
     try:
         with _db_manager.get_connection() as conn:
-            cur = conn.execute(
-                "SELECT guild_id, recap_channel_id, recap_time_utc FROM guild_config"
-            )
-            configs = [
-                (row["guild_id"], row["recap_channel_id"], row["recap_time_utc"])
-                for row in cur.fetchall()
-            ]
-            log.debug(f"Retrieved {len(configs)} guild configurations")
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT guild_id, recap_channel_id, recap_time FROM guild_config")
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute("SELECT guild_id, recap_channel_id, recap_time FROM guild_config")
+                rows = cur.fetchall()
+            
+            configs = []
+            for row in rows:
+                guild_id = int(row["guild_id"])
+                channel_id = int(row["recap_channel_id"]) if row["recap_channel_id"] else None
+                recap_time = row["recap_time"]
+                configs.append((guild_id, channel_id, recap_time))
+            
             return configs
-    except sqlite3.Error as e:
+    except Exception as e:
         log.error(f"Failed to get guild configs: {e}")
-        raise DatabaseError(f"Failed to retrieve guild configurations: {e}") from e
-
-
-def get_guild_config(guild_id: int) -> Optional[Tuple[Optional[str], Optional[str]]]:
-    """Get configuration for a specific guild."""
-    try:
-        with _db_manager.get_connection() as conn:
-            cur = conn.execute(
-                "SELECT recap_channel_id, recap_time_utc FROM guild_config WHERE guild_id = ?",
-                (str(guild_id),)
-            )
-            row = cur.fetchone()
-            return (row["recap_channel_id"], row["recap_time_utc"]) if row else None
-    except sqlite3.Error as e:
-        log.error(f"Failed to get guild config for {guild_id}: {e}")
-        raise DatabaseError(f"Failed to retrieve guild configuration: {e}") from e
+        raise DatabaseError(f"Failed to retrieve guild configs: {e}") from e

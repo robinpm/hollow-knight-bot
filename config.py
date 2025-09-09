@@ -24,6 +24,7 @@ class BotConfig:
     # Optional settings (with defaults)
     command_prefix: Optional[str] = None
     database_path: str = "bot.sqlite3"
+    database_url: Optional[str] = None  # PostgreSQL connection string
     gemini_model: str = "gemini-2.0-flash"
     log_level: str = "INFO"
     max_retries: int = 3
@@ -45,6 +46,7 @@ class BotConfig:
             google_api_key=google_api_key,
             command_prefix=os.getenv("COMMAND_PREFIX"),
             database_path=os.getenv("DATABASE_PATH", "bot.sqlite3"),
+            database_url=os.getenv("DATABASE_URL"),  # PostgreSQL connection string
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             max_retries=int(os.getenv("MAX_RETRIES", "3")),
