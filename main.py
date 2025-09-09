@@ -6,7 +6,7 @@
 # - Increment minor version (1.x -> 2.0) for major new features or breaking changes
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
-BOT_VERSION = "1.3"
+BOT_VERSION = "1.4"
 
 import asyncio
 import re
@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import os
+import pytz
 
 import discord
 from discord import app_commands
@@ -61,6 +62,7 @@ from validation import (
     validate_user_id,
     validate_progress_text,
     validate_time_format,
+    validate_timezone,
     validate_channel_id,
     sanitize_mention_command,
     validate_server_name,
@@ -408,9 +410,9 @@ async def slash_info(interaction: discord.Interaction) -> None:
 
 
 @hollow_group.command(
-    name="schedule_daily_reminder", description="Schedule when the chronicle echoes daily (UTC)"
+    name="schedule_daily_reminder", description="Schedule when the chronicle echoes daily"
 )
-async def slash_schedule(interaction: discord.Interaction, time: str) -> None:
+async def slash_schedule(interaction: discord.Interaction, time: str, timezone: str = "UTC") -> None:
     try:
         if not interaction.guild:
             if not interaction.response.is_done():
@@ -430,6 +432,7 @@ async def slash_schedule(interaction: discord.Interaction, time: str) -> None:
         
         try:
             validated_time = validate_time_format(time)
+            validated_timezone = validate_timezone(timezone)
         except ValidationError as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(
@@ -441,15 +444,15 @@ async def slash_schedule(interaction: discord.Interaction, time: str) -> None:
                 )
             return
         
-        database.set_recap_time(interaction.guild.id, validated_time)
+        database.set_recap_time(interaction.guild.id, validated_time, validated_timezone)
         
         if not interaction.response.is_done():
             await interaction.response.send_message(
-                f"⏰ Chronicle scheduled for **{validated_time} UTC**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
+                f"⏰ Chronicle scheduled for **{validated_time} {validated_timezone}**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
             )
         else:
             await interaction.followup.send(
-                f"⏰ Chronicle scheduled for **{validated_time} UTC**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
+                f"⏰ Chronicle scheduled for **{validated_time} {validated_timezone}**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
             )
     except Exception as e:
         log.error(f"Error in slash_schedule: {e}")
@@ -475,10 +478,47 @@ async def recap_tick() -> None:
         guild_configs = database.get_all_guild_configs()
         log.debug(f"Checking {len(guild_configs)} guild configs for recap time {hhmm}")
         
-        for guild_id, channel_id, recap_time in guild_configs:
+        for guild_id, channel_id, recap_time, timezone_str in guild_configs:
             try:
-                if not channel_id or recap_time != hhmm:
+                if not channel_id or not recap_time:
                     continue
+                
+                # Convert the scheduled time to the guild's timezone
+                try:
+                    # Parse the timezone
+                    if timezone_str == "UTC":
+                        tz = pytz.UTC
+                    elif timezone_str.startswith("UTC"):
+                        # Handle UTC offsets like UTC+5, UTC-8, UTC+05:30
+                        offset_str = timezone_str[3:]  # Remove "UTC"
+                        if offset_str.startswith("+"):
+                            offset_hours = int(offset_str[1:].split(":")[0])
+                            offset_minutes = int(offset_str.split(":")[1]) if ":" in offset_str else 0
+                        elif offset_str.startswith("-"):
+                            offset_hours = -int(offset_str[1:].split(":")[0])
+                            offset_minutes = -int(offset_str.split(":")[1]) if ":" in offset_str else 0
+                        else:
+                            offset_hours = int(offset_str.split(":")[0])
+                            offset_minutes = int(offset_str.split(":")[1]) if ":" in offset_str else 0
+                        
+                        tz = pytz.FixedOffset(offset_hours * 60 + offset_minutes)
+                    else:
+                        # Try to get timezone by name (EST, PST, America/New_York, etc.)
+                        tz = pytz.timezone(timezone_str)
+                    
+                    # Get current time in the guild's timezone
+                    now_in_tz = now.astimezone(tz)
+                    current_time_str = now_in_tz.strftime("%H:%M")
+                    
+                    # Check if it's time for the recap
+                    if recap_time != current_time_str:
+                        continue
+                        
+                except Exception as tz_error:
+                    log.warning(f"Invalid timezone {timezone_str} for guild {guild_id}: {tz_error}")
+                    # Fallback to UTC comparison
+                    if recap_time != hhmm:
+                        continue
                 
                 if last_sent.get(guild_id) == now.date():
                     continue

@@ -15,7 +15,7 @@
 3. **Set Environment Variables** in Render dashboard:
    - `DISCORD_TOKEN`: Your Discord bot token
    - `GEMINI_API_KEY`: Your Google Gemini API key
-   - `DATABASE_PATH`: `/tmp/bot.sqlite3` (or leave default)
+   - `DATABASE_URL`: Your PostgreSQL connection string (for persistent data)
    - `LOG_LEVEL`: `INFO` (or leave default)
 
 4. **Deploy!** The bot will start automatically
@@ -26,12 +26,12 @@
 |----------|----------|-------------|
 | `DISCORD_TOKEN` | ✅ Yes | Discord bot token from Discord Developer Portal |
 | `GEMINI_API_KEY` | ✅ Yes | Google Gemini API key |
-| `DATABASE_PATH` | ❌ No | Default: `/tmp/bot.sqlite3` |
+| `DATABASE_URL` | ❌ No | PostgreSQL connection string (uses SQLite if not set) |
 | `LOG_LEVEL` | ❌ No | Default: `INFO` |
 
 ## Important Notes
 
-- **Database**: SQLite database is stored in `/tmp/` which is ephemeral on Render
+- **Database**: With `DATABASE_URL` set, uses PostgreSQL for persistent data storage
 - **Restarts**: Bot will restart automatically on code changes
 - **Logs**: Check Render dashboard for logs
 - **Uptime**: Free tier has limitations, consider paid plan for 24/7 uptime
@@ -40,5 +40,5 @@
 
 - **Build fails**: Check that all dependencies are in `requirements-prod.txt`
 - **Bot doesn't start**: Check environment variables are set correctly
-- **Database issues**: Data resets on each deployment (expected behavior)
+- **Database issues**: With PostgreSQL, data persists across deployments
 - **API errors**: Verify your API keys are valid and have proper permissions

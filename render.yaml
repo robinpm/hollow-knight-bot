@@ -2,14 +2,14 @@ services:
   - type: web
     name: hollow-knight-bot
     env: python
-    buildCommand: pip install -r requirements-prod.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements-prod.txt
     startCommand: python main.py
     envVars:
       - key: DISCORD_TOKEN
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: DATABASE_PATH
-        value: /tmp/bot.sqlite3
+      - key: DATABASE_URL
+        value: postgresql://hollowbot_memory_user:FAXPtdiAIl6i1T7c79pTGdg4dBAW2X7Z@dpg-d2vp610dl3ps739e6cbg-a.oregon-postgres.render.com/hollowbot_memory
       - key: LOG_LEVEL
         value: INFO

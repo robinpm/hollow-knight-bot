@@ -65,6 +65,7 @@ class DatabaseManager:
                     guild_id TEXT PRIMARY KEY,
                     recap_channel_id TEXT,
                     recap_time TEXT,
+                    timezone TEXT DEFAULT 'UTC',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -97,6 +98,7 @@ class DatabaseManager:
                         guild_id VARCHAR(255) PRIMARY KEY,
                         recap_channel_id VARCHAR(255),
                         recap_time VARCHAR(10),
+                        timezone VARCHAR(50) DEFAULT 'UTC',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -257,39 +259,39 @@ def set_recap_channel(guild_id: int, channel_id: int) -> None:
         raise DatabaseError(f"Failed to set recap channel: {e}") from e
 
 
-def set_recap_time(guild_id: int, time_str: str) -> None:
-    """Set the recap time for a guild."""
+def set_recap_time(guild_id: int, time_str: str, timezone_str: str = "UTC") -> None:
+    """Set the recap time and timezone for a guild."""
     try:
         with _db_manager.get_connection() as conn:
             if _db_manager._use_postgres:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO guild_config (guild_id, recap_time) VALUES (%s, %s) ON CONFLICT (guild_id) DO UPDATE SET recap_time=%s, updated_at=CURRENT_TIMESTAMP",
-                        (str(guild_id), time_str, time_str),
+                        "INSERT INTO guild_config (guild_id, recap_time, timezone) VALUES (%s, %s, %s) ON CONFLICT (guild_id) DO UPDATE SET recap_time=%s, timezone=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), time_str, timezone_str, time_str, timezone_str),
                     )
                     conn.commit()
             else:
                 conn.execute(
-                    "INSERT OR REPLACE INTO guild_config (guild_id, recap_time, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-                    (str(guild_id), time_str),
+                    "INSERT OR REPLACE INTO guild_config (guild_id, recap_time, timezone, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                    (str(guild_id), time_str, timezone_str),
                 )
                 conn.commit()
-            log.info(f"Set recap time for guild {guild_id} to {time_str}")
+            log.info(f"Set recap time for guild {guild_id} to {time_str} {timezone_str}")
     except Exception as e:
         log.error(f"Failed to set recap time: {e}")
         raise DatabaseError(f"Failed to set recap time: {e}") from e
 
 
-def get_all_guild_configs() -> List[Tuple[int, Optional[int], Optional[str]]]:
-    """Return all guild configurations."""
+def get_all_guild_configs() -> List[Tuple[int, Optional[int], Optional[str], str]]:
+    """Return all guild configurations with timezone."""
     try:
         with _db_manager.get_connection() as conn:
             if _db_manager._use_postgres:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT guild_id, recap_channel_id, recap_time FROM guild_config")
+                    cur.execute("SELECT guild_id, recap_channel_id, recap_time, timezone FROM guild_config")
                     rows = cur.fetchall()
             else:
-                cur = conn.execute("SELECT guild_id, recap_channel_id, recap_time FROM guild_config")
+                cur = conn.execute("SELECT guild_id, recap_channel_id, recap_time, timezone FROM guild_config")
                 rows = cur.fetchall()
             
             configs = []
@@ -297,7 +299,8 @@ def get_all_guild_configs() -> List[Tuple[int, Optional[int], Optional[str]]]:
                 guild_id = int(row["guild_id"])
                 channel_id = int(row["recap_channel_id"]) if row["recap_channel_id"] else None
                 recap_time = row["recap_time"]
-                configs.append((guild_id, channel_id, recap_time))
+                timezone_str = row["timezone"] or "UTC"
+                configs.append((guild_id, channel_id, recap_time, timezone_str))
             
             return configs
     except Exception as e:

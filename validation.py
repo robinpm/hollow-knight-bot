@@ -62,6 +62,33 @@ def validate_time_format(time_str: str) -> str:
     return time_str
 
 
+def validate_timezone(timezone_str: str) -> str:
+    """Validate timezone string."""
+    if not timezone_str or not isinstance(timezone_str, str):
+        raise ValidationError("Timezone cannot be empty")
+    
+    timezone_str = timezone_str.strip()
+    
+    # Common timezone formats
+    timezone_patterns = [
+        r'^UTC$',  # UTC
+        r'^UTC[+-]\d{1,2}$',  # UTC+5, UTC-8
+        r'^UTC[+-]\d{1,2}:\d{2}$',  # UTC+05:30, UTC-08:00
+        r'^[A-Z]{3,4}$',  # EST, PST, GMT
+        r'^[A-Za-z_/]+$',  # America/New_York, Europe/London
+    ]
+    
+    # Check if it matches any valid timezone pattern
+    if not any(re.match(pattern, timezone_str) for pattern in timezone_patterns):
+        raise ValidationError("Invalid timezone format. Use UTC, UTC+5, EST, or America/New_York format")
+    
+    # Check length
+    if len(timezone_str) > 50:
+        raise ValidationError("Timezone string is too long (max 50 characters)")
+    
+    return timezone_str
+
+
 def validate_channel_id(channel_id: int) -> None:
     """Validate channel ID."""
     if not isinstance(channel_id, int) or channel_id <= 0:

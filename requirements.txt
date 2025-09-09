@@ -6,6 +6,9 @@ google-generativeai>=0.8.0,<1.0.0
 langchain>=0.1.0,<1.0.0
 langchain-community>=0.0.20,<1.0.0
 
+# Timezone support
+pytz>=2023.3
+
 # Development and testing (optional)
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
