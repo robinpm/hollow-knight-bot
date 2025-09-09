@@ -6,7 +6,8 @@
 # - Increment minor version (1.x -> 2.0) for major new features or breaking changes
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
-BOT_VERSION = "1.4.3"
+
+BOT_VERSION = "1.4.5"
 
 import asyncio
 import os
@@ -78,7 +79,8 @@ bot = commands.Bot(command_prefix=config.command_prefix, intents=intents)
 
 PROGRESS_RE = re.compile(r"\b(beat|got|found|upgraded)\b", re.I)
 last_sent: Dict[str, datetime.date] = {}
-SPONTANEOUS_RESPONSE_CHANCE = float(os.getenv("SPONTANEOUS_RESPONSE_CHANCE", "0.05"))
+  
+SPONTANEOUS_RESPONSE_CHANCE = config.spontaneous_response_chance
 
 
 def is_admin(member: discord.Member) -> bool:
@@ -150,14 +152,14 @@ async def on_ready() -> None:
 @bot.event
 async def on_message(message: discord.Message) -> None:
     """Handle incoming messages."""
+    if message.author.bot or not message.guild or not bot.user:
+        return
+
+    content = message.content.strip()
+    if not content:
+        return
+
     try:
-        if message.author.bot or not message.guild or not bot.user:
-            return
-
-        content = message.content.strip()
-        if not content:
-            return
-
         mentioned = bot.user in message.mentions
 
         if mentioned:
@@ -215,16 +217,21 @@ async def on_message(message: discord.Message) -> None:
                 if reply:
                     await message.reply(reply)
 
-        await bot.process_commands(message)
 
+    except commands.CommandError as e:
+        # Ignore command-related errors and let default handlers deal with them
+        log.debug(f"Command error in on_message: {e}")
     except Exception as e:
         log.error(f"Error handling message: {e}")
-        try:
-            await message.reply(
-                "The Infection got to my response system. But I heard you, gamer!"
-            )
-        except Exception as reply_error:
-            log.error(f"Failed to send error reply: {reply_error}")
+        if bot.user in message.mentions:
+            try:
+                await message.reply(
+                    "The Infection got to my response system. But I heard you, gamer!"
+                )
+            except Exception as reply_error:
+                log.error(f"Failed to send error reply: {reply_error}")
+    finally:
+        await bot.process_commands(message)
 
 
 async def handle_progress(message: discord.Message, text: str) -> None:

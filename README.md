@@ -58,10 +58,12 @@ pip install -r requirements.txt
 3. Set environment variables:
 ```bash
 export DISCORD_TOKEN="your_discord_bot_token"
-export GOOGLE_API_KEY="your_gemini_api_key"
+export GEMINI_API_KEY="your_gemini_api_key"
 export DATABASE_PATH="bot.sqlite3"  # Optional, defaults to bot.sqlite3
 export GEMINI_MODEL="gemini-2.0-flash"  # Optional, defaults to gemini-2.0-flash
 export LOG_LEVEL="INFO"  # Optional, defaults to INFO
+export COMMAND_PREFIX="!"  # Optional, defaults to "!"
+export SPONTANEOUS_RESPONSE_CHANCE="0.05"  # Optional, chance bot replies to any message (0-1)
 ```
 
 4. Run the bot:
@@ -76,10 +78,11 @@ The bot uses environment variables for configuration:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DISCORD_TOKEN` | Yes | - | Discord bot token |
-| `GOOGLE_API_KEY` | Yes | - | Google Gemini API key |
+| `GEMINI_API_KEY` | Yes | - | Google Gemini API key |
 | `DATABASE_PATH` | No | `bot.sqlite3` | SQLite database file path |
 | `GEMINI_MODEL` | No | `gemini-2.0-flash` | Gemini model to use |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+| `COMMAND_PREFIX` | No | `!` | Prefix for text commands |
 | `MAX_RETRIES` | No | `3` | Maximum retry attempts for API calls |
 | `REQUEST_TIMEOUT` | No | `30` | Request timeout in seconds |
 | `SPONTANEOUS_RESPONSE_CHANCE` | No | `0.05` | Chance the bot replies to any message |
