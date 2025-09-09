@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.6"
+BOT_VERSION = "1.4.7"
 
 import asyncio
 import os
@@ -112,6 +112,22 @@ def _build_updates_context(guild: discord.Guild) -> str:
         return "The echoes of Hallownest are temporarily silent."
 
 
+async def _get_recent_messages(message: discord.Message, limit: int = 10) -> str:
+    """Return up to `limit` previous messages plus the current one for context."""
+    lines: List[str] = []
+    try:
+        async for msg in message.channel.history(limit=limit, before=message):
+            if msg.author.bot or not msg.content:
+                continue
+            lines.append(f"{msg.author.display_name}: {msg.content.strip()}")
+    except Exception as e:
+        log.warning(f"Failed to fetch recent messages: {e}")
+
+    lines.reverse()
+    lines.append(f"{message.author.display_name}: {message.content.strip()}")
+    return "\n".join(lines)
+
+
 def _build_progress_reply(guild: discord.Guild, text: str) -> str:
     """Build a progress reply with AI-generated commentary."""
     try:
@@ -195,9 +211,11 @@ async def on_message(message: discord.Message) -> None:
                 age_str = f"{days}d" if days else f"{hours}h"
                 user_context = f'\nYour last progress: "{text}" ({age_str} ago)'
 
+            recent = await _get_recent_messages(message)
             prompt = (
+                f"Recent conversation:\n{recent}\n\n"
                 "Recent updates from everyone:\n"
-                f"{guild_context}{user_context}\n\nUser said: {content}\n\n"
+                f"{guild_context}{user_context}\n"
                 "Respond as HollowBot, referencing their progress if relevant. "
                 "Keep it short and gamer-like (1-2 sentences max)."
             )
@@ -212,9 +230,11 @@ async def on_message(message: discord.Message) -> None:
             if random.random() < chance:
                 log.info("Spontaneous response triggered in guild %s", message.guild.id)
                 guild_context = _build_updates_context(message.guild)
+                recent = await _get_recent_messages(message)
                 prompt = (
+                    f"Recent conversation:\n{recent}\n\n"
                     "Recent updates from everyone:\n"
-                    f"{guild_context}\n\nUser said: {content}\n\n"
+                    f"{guild_context}\n"
                     "Respond as HollowBot. Keep it short and gamer-like (1-2 sentences max)."
                 )
                 reply = convo_chain.predict(input=prompt)
