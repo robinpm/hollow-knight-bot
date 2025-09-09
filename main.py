@@ -6,7 +6,7 @@
 # - Increment minor version (1.x -> 2.0) for major new features or breaking changes
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
-BOT_VERSION = "1.2"
+BOT_VERSION = "1.3"
 
 import asyncio
 import re
@@ -168,9 +168,21 @@ async def on_message(message: discord.Message) -> None:
             await handle_progress(message, content)
             return
 
-        # Regular chat response
-        context = _build_updates_context(message.guild)
-        prompt = f"Recent updates:\n{context}\nUser said: {content}"
+        # Regular chat response with user's progress context
+        guild_context = _build_updates_context(message.guild)
+        
+        # Get the user's specific progress history for more personalized responses
+        user_progress = database.get_last_update(message.guild.id, message.author.id)
+        user_context = ""
+        if user_progress:
+            text, ts = user_progress
+            age_sec = int(time.time()) - ts
+            days = age_sec // 86400
+            hours = age_sec // 3600
+            age_str = f"{days}d" if days else f"{hours}h"
+            user_context = f"\nYour last progress: \"{text}\" ({age_str} ago)"
+        
+        prompt = f"Recent updates from everyone:\n{guild_context}{user_context}\n\nUser said: {content}\n\nRespond as HollowBot, referencing their progress if relevant. Keep it short and gamer-like (1-2 sentences max)."
         reply = convo_chain.predict(input=prompt)
         await message.reply(reply or "The echoes of Hallownest have been heard, gamer.")
         
