@@ -23,8 +23,13 @@ class DatabaseManager:
     def __init__(self):
         self._use_postgres = bool(config.database_url)
         if self._use_postgres:
-            log.info("Using PostgreSQL database")
-            self._init_postgres()
+            try:
+                log.info("Attempting to use PostgreSQL database")
+                self._init_postgres()
+            except DatabaseError as e:
+                log.warning(f"PostgreSQL initialization failed: {e}. Falling back to SQLite.")
+                self._use_postgres = False
+                self._init_sqlite()
         else:
             log.info("Using SQLite database")
             self._init_sqlite()

@@ -6,7 +6,7 @@
 # - Increment minor version (1.x -> 2.0) for major new features or breaking changes
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
-BOT_VERSION = "1.4"
+BOT_VERSION = "1.4.1"
 
 import asyncio
 import re
