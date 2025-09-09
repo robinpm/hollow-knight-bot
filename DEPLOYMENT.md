@@ -14,7 +14,7 @@
 
 3. **Set Environment Variables** in Render dashboard:
    - `DISCORD_TOKEN`: Your Discord bot token
-   - `GOOGLE_API_KEY`: Your Google Gemini API key
+   - `GEMINI_API_KEY`: Your Google Gemini API key
    - `DATABASE_PATH`: `/tmp/bot.sqlite3` (or leave default)
    - `LOG_LEVEL`: `INFO` (or leave default)
 
@@ -25,7 +25,7 @@
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DISCORD_TOKEN` | ✅ Yes | Discord bot token from Discord Developer Portal |
-| `GOOGLE_API_KEY` | ✅ Yes | Google Gemini API key |
+| `GEMINI_API_KEY` | ✅ Yes | Google Gemini API key |
 | `DATABASE_PATH` | ❌ No | Default: `/tmp/bot.sqlite3` |
 | `LOG_LEVEL` | ❌ No | Default: `INFO` |
 

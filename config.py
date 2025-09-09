@@ -28,9 +28,9 @@ class BotConfig:
         if not discord_token:
             raise ValueError("DISCORD_TOKEN environment variable is required")
         
-        google_api_key = os.getenv("GOOGLE_API_KEY")
-        if not google_api_key:
-            raise ValueError("GOOGLE_API_KEY environment variable is required")
+        google_api_key = os.getenv("GEMINI_API_KEY", "dummy-key-for-testing")
+        if not google_api_key or google_api_key == "dummy-key-for-testing":
+            print("WARNING: GEMINI_API_KEY not set, AI features will be limited")
         
         return cls(
             discord_token=discord_token,
