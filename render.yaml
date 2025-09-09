@@ -2,7 +2,7 @@ services:
   - type: web
     name: hollow-knight-bot
     env: python
-    buildCommand: pip install --upgrade pip && pip install -r requirements-prod.txt
+    buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements-prod.txt && pip list | grep psycopg2
     startCommand: python main.py
     envVars:
       - key: DISCORD_TOKEN

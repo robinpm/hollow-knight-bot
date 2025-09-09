@@ -1,10 +1,17 @@
 # Production requirements for Render.com deployment
+# PostgreSQL support (install first to avoid conflicts)
+psycopg2-binary>=2.9.0,<3.0.0
+
+# Core Discord bot framework
 discord.py>=2.4.0,<3.0.0
+
+# AI/ML dependencies
 google-generativeai>=0.8.0,<1.0.0
 langchain>=0.1.0,<1.0.0
 langchain-community>=0.0.20,<1.0.0
 langchain-core>=0.1.0,<1.0.0
-psycopg2-binary>=2.9.0
+
+# Additional dependencies
 pytz>=2023.3
 aiohttp>=3.8.0
 python-dotenv>=1.0.0
