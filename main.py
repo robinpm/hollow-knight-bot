@@ -231,7 +231,7 @@ async def slash_get_progress(
     hours = age_sec // 3600
     age_str = f"{days}d" if days else f"{hours}h"
     await interaction.response.send_message(
-        f"📜 Last echo from **{target.display_name}**: "{text}" ({age_str} ago)"
+        f"📜 Last echo from **{target.display_name}**: \"{text}\" ({age_str} ago)"
     )
 
 

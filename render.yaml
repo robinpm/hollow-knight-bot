@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: hollow-knight-bot
+    env: python
+    buildCommand: pip install -r requirements-prod.txt
+    startCommand: python main.py
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: DATABASE_PATH
+        value: /tmp/bot.sqlite3
+      - key: LOG_LEVEL
+        value: INFO

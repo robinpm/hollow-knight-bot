@@ -17,6 +17,7 @@ class BotConfig:
     database_path: str = "bot.sqlite3"
     
     # AI settings
+    google_api_key: str
     gemini_model: str = "gemini-2.0-flash"
     
     # Bot behavior
@@ -31,8 +32,13 @@ class BotConfig:
         if not discord_token:
             raise ValueError("DISCORD_TOKEN environment variable is required")
         
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        if not google_api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable is required")
+        
         return cls(
             discord_token=discord_token,
+            google_api_key=google_api_key,
             command_prefix=os.getenv("COMMAND_PREFIX"),
             database_path=os.getenv("DATABASE_PATH", "bot.sqlite3"),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
@@ -45,6 +51,9 @@ class BotConfig:
         """Validate configuration values."""
         if not self.discord_token:
             raise ValueError("Discord token is required")
+        
+        if not self.google_api_key:
+            raise ValueError("Google API key is required")
         
         if self.max_retries < 1:
             raise ValueError("max_retries must be at least 1")
