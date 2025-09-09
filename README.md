@@ -7,6 +7,7 @@ A Discord bot that tracks Hollow Knight progress and provides daily recaps with 
 - **Progress Tracking**: Record and track Hollow Knight achievements
 - **Daily Recaps**: AI-generated daily summaries with Hollow Knight lore and gaming memes
 - **Character Consistency**: Maintains authentic gamer Hollow Knight personality
+- **Spontaneous Chat**: Occasionally replies to regular channel messages
 - **Robust Error Handling**: Graceful failure handling with in-character responses
 - **Input Validation**: Comprehensive validation and sanitization
 - **Database Management**: SQLite-based progress storage with proper connection handling
@@ -81,6 +82,7 @@ The bot uses environment variables for configuration:
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `MAX_RETRIES` | No | `3` | Maximum retry attempts for API calls |
 | `REQUEST_TIMEOUT` | No | `30` | Request timeout in seconds |
+| `SPONTANEOUS_RESPONSE_CHANCE` | No | `0.05` | Chance the bot replies to any message |
 
 ## Commands
 
