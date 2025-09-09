@@ -6,6 +6,7 @@
 # - Increment minor version (1.x -> 2.0) for major new features or breaking changes
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
+
 BOT_VERSION = "1.4.5"
 
 import asyncio
@@ -78,6 +79,7 @@ bot = commands.Bot(command_prefix=config.command_prefix, intents=intents)
 
 PROGRESS_RE = re.compile(r"\b(beat|got|found|upgraded)\b", re.I)
 last_sent: Dict[str, datetime.date] = {}
+  
 SPONTANEOUS_RESPONSE_CHANCE = config.spontaneous_response_chance
 
 
@@ -214,6 +216,7 @@ async def on_message(message: discord.Message) -> None:
                 reply = convo_chain.predict(input=prompt)
                 if reply:
                     await message.reply(reply)
+
 
     except commands.CommandError as e:
         # Ignore command-related errors and let default handlers deal with them
