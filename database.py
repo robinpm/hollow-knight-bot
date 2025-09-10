@@ -86,10 +86,29 @@ class DatabaseManager:
                 )
             except sqlite3.OperationalError:
                 pass
-            
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id TEXT NOT NULL,
+                    memory_text TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memories_guild ON memories(guild_id)"
+            )
+
             # Create indexes
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_ts ON progress(ts)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_progress_ts ON progress(ts)"
+            )
             conn.commit()
             log.info("SQLite database initialized successfully")
     
@@ -131,7 +150,22 @@ class DatabaseManager:
                 cur.execute(
                     "ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS edginess INTEGER DEFAULT 5"
                 )
-                
+
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS memories (
+                        id SERIAL PRIMARY KEY,
+                        guild_id VARCHAR(255) NOT NULL,
+                        memory_text TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_memories_guild ON memories(guild_id)"
+                )
+
                 # Create indexes
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_ts ON progress(ts)")
@@ -262,6 +296,80 @@ def get_updates_today_by_guild(guild_id: int) -> Dict[str, List[str]]:
     except Exception as e:
         log.error(f"Failed to get today's updates: {e}")
         raise DatabaseError(f"Failed to retrieve today's updates: {e}") from e
+
+
+def add_memory(guild_id: int, text: str) -> int:
+    """Store a memory snippet for a guild and return its ID."""
+    if not text or not text.strip():
+        raise ValueError("Memory text cannot be empty")
+
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO memories (guild_id, memory_text) VALUES (%s, %s) RETURNING id",
+                        (str(guild_id), text.strip()),
+                    )
+                    mem_id = cur.fetchone()["id"]
+                    conn.commit()
+                    return int(mem_id)
+            else:
+                cur = conn.execute(
+                    "INSERT INTO memories (guild_id, memory_text) VALUES (?, ?)",
+                    (str(guild_id), text.strip()),
+                )
+                conn.commit()
+                return int(cur.lastrowid)
+    except Exception as e:
+        log.error(f"Failed to add memory: {e}")
+        raise DatabaseError(f"Failed to add memory: {e}") from e
+
+
+def get_memories_by_guild(guild_id: int) -> List[Tuple[int, str]]:
+    """Return all memories for a guild."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id, memory_text FROM memories WHERE guild_id=%s ORDER BY id", 
+                        (str(guild_id),),
+                    )
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT id, memory_text FROM memories WHERE guild_id=? ORDER BY id",
+                    (str(guild_id),),
+                )
+                rows = cur.fetchall()
+
+            return [(int(r["id"]), r["memory_text"]) for r in rows]
+    except Exception as e:
+        log.error(f"Failed to get memories: {e}")
+        raise DatabaseError(f"Failed to retrieve memories: {e}") from e
+
+
+def delete_memory(guild_id: int, memory_id: int) -> None:
+    """Delete a memory by ID for a guild."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM memories WHERE guild_id=%s AND id=%s",
+                        (str(guild_id), memory_id),
+                    )
+                    conn.commit()
+            else:
+                conn.execute(
+                    "DELETE FROM memories WHERE guild_id=? AND id=?",
+                    (str(guild_id), memory_id),
+                )
+                conn.commit()
+    except Exception as e:
+        log.error(f"Failed to delete memory: {e}")
+        raise DatabaseError(f"Failed to delete memory: {e}") from e
 
 
 def set_recap_channel(guild_id: int, channel_id: int) -> None:

@@ -7,7 +7,10 @@ import sys
 def test_imports():
     """Test that all modules can be imported."""
     print("Testing imports...")
-    
+
+    os.environ["DISCORD_TOKEN"] = "dummy"
+    os.environ["GEMINI_API_KEY"] = "dummy"
+
     try:
         import config
         print("✅ config imported")
@@ -119,6 +122,22 @@ def test_validation():
         print(f"❌ Validation test failed: {e}")
         return False
 
+
+def test_memory_db():
+    """Test memory database operations."""
+    print("\nTesting memory DB...")
+    try:
+        import database
+
+        mem_id = database.add_memory(1, "Test memory")
+        memories = database.get_memories_by_guild(1)
+        assert any(mid == mem_id for mid, _ in memories)
+        database.delete_memory(1, mem_id)
+        print("✅ Memory DB functions")
+        return True
+    except Exception as e:
+        print(f"❌ Memory DB test failed: {e}")
+        return False
 def main():
     """Run all tests."""
     print("🧪 Hollow Knight Bot Test Suite")
@@ -128,6 +147,7 @@ def main():
         test_imports,
         test_config,
         test_validation,
+        test_memory_db,
     ]
     
     passed = 0
