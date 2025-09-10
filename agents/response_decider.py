@@ -1,6 +1,6 @@
 from typing import Optional
 
-from langchain.agents import AgentType, initialize_agent
+
 from langchain_core.language_models.llms import LLM
 
 from gemini_integration import generate_reply
@@ -22,20 +22,16 @@ class GeminiLLM(LLM):
         return "gemini"
 
 
-# Stateless agent for response decisions
+
+# Stateless LLM for response decisions
 _llm = GeminiLLM()
-_agent = initialize_agent(
-    tools=[],
-    llm=_llm,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=False,
-)
+
 
 
 def should_respond(
     recent: str, guild_context: str, author: str, custom_context: str
 ) -> bool:
-    """Use an LLM-powered agent to decide if the bot should reply."""
+    """Use an LLM to decide if the bot should reply."""
     preamble = f"{custom_context}\n" if custom_context else ""
     prompt = (
         f"{preamble}Recent conversation:\n{recent}\n\n"
@@ -43,7 +39,7 @@ def should_respond(
         f"The last message was from {author}. Should HollowBot reply? Answer yes or no."
     )
     try:
-        decision = _agent.run(prompt).strip().lower()
+        decision = _llm.invoke(prompt).strip().lower()
         return decision.startswith("y")
     except Exception as e:  # pragma: no cover - LLM call failures
         log.error(f"Response decider failed: {e}")
