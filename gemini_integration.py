@@ -125,7 +125,7 @@ def generate_reply(
         log.debug("Generating reply with Gemini")
         extra = f"\nEdginess level: {edginess}" if edginess is not None else ""
         short_prompt = (
-            f"{prompt}{extra}\n\nIMPORTANT: Keep your response SHORT - maximum 1-2 sentences. Be concise and to the point."
+            f"{prompt}{extra}\n\nIMPORTANT: Keep your response SHORT - maximum 1-2 sentences. Be concise and to the point. Do NOT include 'HollowBot:' or any name prefix in your response."
         )
         return _gemini_client.generate_content(short_prompt, model)
     except Exception as e:

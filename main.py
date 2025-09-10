@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.5"
+BOT_VERSION = "1.5.1"
 
 import asyncio
 import os
@@ -137,7 +137,7 @@ def _build_progress_reply(guild: discord.Guild, text: str) -> str:
         preamble = f"{custom_context}\n" if custom_context else ""
         prompt = (
             f"{preamble}Memories:\n{memories}\n\nRecent updates:\n{updates}\nNew update: {validated_text}\n\n"
-            "Give a short, snarky gamer response (1-2 sentences max) about this progress update."
+            "Give a short, snarky gamer response (1-2 sentences max) about this progress update. Do NOT include 'HollowBot:' or any name prefix in your response."
         )
         riff = generate_reply(prompt, edginess=edginess)
 
@@ -228,7 +228,7 @@ async def on_message(message: discord.Message) -> None:
                 "Recent updates from everyone:\n"
                 f"{guild_context}{user_context}\n"
                 "Respond as HollowBot to the CURRENT MESSAGE, referencing their progress if relevant. "
-                "Keep it short and gamer-like (1-2 sentences max)."
+                "Keep it short and gamer-like (1-2 sentences max). Do NOT include 'HollowBot:' or any name prefix in your response."
             )
             reply = generate_reply(prompt, edginess=edginess)
             await message.reply(
@@ -257,7 +257,7 @@ async def on_message(message: discord.Message) -> None:
                         f"CURRENT MESSAGE (the one you're responding to):\n{current_message}\n\n"
                         "Recent updates from everyone:\n"
                         f"{guild_context}\n"
-                        "Respond as HollowBot to the CURRENT MESSAGE. Keep it short and gamer-like (1-2 sentences max)."
+                        "Respond as HollowBot to the CURRENT MESSAGE. Keep it short and gamer-like (1-2 sentences max). Do NOT include 'HollowBot:' or any name prefix in your response."
                     )
                     reply = generate_reply(prompt, edginess=edginess)
                     if reply:
