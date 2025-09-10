@@ -368,3 +368,26 @@ def get_custom_context(guild_id: int) -> str:
     except Exception as e:
         log.error(f"Failed to get custom context: {e}")
         raise DatabaseError(f"Failed to retrieve custom context: {e}") from e
+
+
+def clear_custom_context(guild_id: int) -> None:
+    """Clear custom prompt context for a guild."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE guild_config SET custom_context=NULL, updated_at=CURRENT_TIMESTAMP WHERE guild_id=%s",
+                        (str(guild_id),),
+                    )
+                    conn.commit()
+            else:
+                conn.execute(
+                    "UPDATE guild_config SET custom_context=NULL, updated_at=CURRENT_TIMESTAMP WHERE guild_id=?",
+                    (str(guild_id),),
+                )
+                conn.commit()
+            log.info(f"Cleared custom context for guild {guild_id}")
+    except Exception as e:
+        log.error(f"Failed to clear custom context: {e}")
+        raise DatabaseError(f"Failed to clear custom context: {e}") from e
