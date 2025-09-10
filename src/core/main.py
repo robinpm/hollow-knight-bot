@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.8.1"
+BOT_VERSION = "1.9"
 
 import asyncio
 import os
@@ -15,7 +15,7 @@ import random
 import re
 import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pytz
 
@@ -311,6 +311,12 @@ async def handle_progress(message: discord.Message, text: str) -> None:
         last = database.get_last_update(message.guild.id, message.author.id)
         database.add_update(message.guild.id, message.author.id, validated_text, now_ts)
 
+        # Parse and store achievements
+        achievement = parse_hollow_knight_achievement(validated_text)
+        if achievement:
+            achievement_type, achievement_name = achievement
+            database.add_achievement(message.guild.id, message.author.id, achievement_type, achievement_name, validated_text, now_ts)
+
         mem = generate_memory(validated_text)
         if mem:
             database.add_memory(message.guild.id, mem)
@@ -468,6 +474,12 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
         database.add_update(
             interaction.guild.id, interaction.user.id, validated_text, now_ts
         )
+
+        # Parse and store achievements
+        achievement = parse_hollow_knight_achievement(validated_text)
+        if achievement:
+            achievement_type, achievement_name = achievement
+            database.add_achievement(interaction.guild.id, interaction.user.id, achievement_type, achievement_name, validated_text, now_ts)
 
         mem = generate_memory(validated_text)
         if mem:
@@ -967,9 +979,141 @@ async def slash_set_channel(interaction: discord.Interaction) -> None:
             )
 
 
+def parse_hollow_knight_achievement(progress_text: str) -> Optional[Tuple[str, str]]:
+    """Parse Hollow Knight achievement from progress text. Returns (achievement_type, achievement_name) or None."""
+    text = progress_text.lower()
+    
+    # Boss achievements
+    boss_patterns = {
+        "false knight": ("boss", "False Knight"),
+        "hornet": ("boss", "Hornet"),
+        "mantis lords": ("boss", "Mantis Lords"),
+        "soul master": ("boss", "Soul Master"),
+        "crystal guardian": ("boss", "Crystal Guardian"),
+        "dung defender": ("boss", "Dung Defender"),
+        "broken vessel": ("boss", "Broken Vessel"),
+        "watcher knights": ("boss", "Watcher Knights"),
+        "nosk": ("boss", "Nosk"),
+        "flukemarm": ("boss", "Flukemarm"),
+        "collector": ("boss", "The Collector"),
+        "hollow knight": ("boss", "Hollow Knight"),
+        "radiance": ("boss", "The Radiance"),
+        "grimm": ("boss", "Nightmare King Grimm"),
+        "pure vessel": ("boss", "Pure Vessel"),
+        "absolute radiance": ("boss", "Absolute Radiance"),
+        "grey prince zote": ("boss", "Grey Prince Zote"),
+        "white defender": ("boss", "White Defender"),
+        "failed champion": ("boss", "Failed Champion"),
+        "lost kin": ("boss", "Lost Kin"),
+        "soul tyrant": ("boss", "Soul Tyrant"),
+        "enraged guardian": ("boss", "Enraged Guardian"),
+        "god tamer": ("boss", "God Tamer"),
+        "troupe master grimm": ("boss", "Troupe Master Grimm"),
+        "nailsage sly": ("boss", "Nailsage Sly"),
+        "paintmaster sheo": ("boss", "Paintmaster Sheo"),
+        "great nailsage sly": ("boss", "Great Nailsage Sly"),
+        "pure vessel": ("boss", "Pure Vessel"),
+        "winged nosk": ("boss", "Winged Nosk"),
+        "marmu": ("boss", "Marmu"),
+        "galien": ("boss", "Galien"),
+        "markoth": ("boss", "Markoth"),
+        "xero": ("boss", "Xero"),
+        "gorb": ("boss", "Gorb"),
+        "elder hu": ("boss", "Elder Hu"),
+        "no eyes": ("boss", "No Eyes"),
+        "uumuu": ("boss", "Uumuu"),
+        "hive knight": ("boss", "Hive Knight"),
+        "sisters of battle": ("boss", "Sisters of Battle"),
+        "oblobbles": ("boss", "Oblobbles"),
+        "sly": ("boss", "Sly"),
+        "sheo": ("boss", "Sheo"),
+        "oro and mato": ("boss", "Oro and Mato"),
+        "zote": ("boss", "Zote"),
+    }
+    
+    # Area achievements
+    area_patterns = {
+        "forgotten crossroads": ("area", "Forgotten Crossroads"),
+        "greenpath": ("area", "Greenpath"),
+        "fungal wastes": ("area", "Fungal Wastes"),
+        "city of tears": ("area", "City of Tears"),
+        "crystal peak": ("area", "Crystal Peak"),
+        "royal waterways": ("area", "Royal Waterways"),
+        "deepnest": ("area", "Deepnest"),
+        "ancient basin": ("area", "Ancient Basin"),
+        "kingdom's edge": ("area", "Kingdom's Edge"),
+        "queen's gardens": ("area", "Queen's Gardens"),
+        "howling cliffs": ("area", "Howling Cliffs"),
+        "resting grounds": ("area", "Resting Grounds"),
+        "hive": ("area", "The Hive"),
+        "godhome": ("area", "Godhome"),
+        "white palace": ("area", "White Palace"),
+        "path of pain": ("area", "Path of Pain"),
+        "abyss": ("area", "The Abyss"),
+        "colosseum": ("area", "Colosseum of Fools"),
+    }
+    
+    # Upgrade achievements
+    upgrade_patterns = {
+        "nail upgrade": ("upgrade", "Nail Upgrade"),
+        "nail art": ("upgrade", "Nail Art"),
+        "spell upgrade": ("upgrade", "Spell Upgrade"),
+        "vessel fragment": ("upgrade", "Vessel Fragment"),
+        "mask shard": ("upgrade", "Mask Shard"),
+        "charm": ("upgrade", "Charm"),
+        "notch": ("upgrade", "Charm Notch"),
+        "soul vessel": ("upgrade", "Soul Vessel"),
+        "pale ore": ("upgrade", "Pale Ore"),
+        "crystal heart": ("upgrade", "Crystal Heart"),
+        "monarch wings": ("upgrade", "Monarch Wings"),
+        "mothwing cloak": ("upgrade", "Mothwing Cloak"),
+        "mantis claw": ("upgrade", "Mantis Claw"),
+        "isma's tear": ("upgrade", "Isma's Tear"),
+        "shade cloak": ("upgrade", "Shade Cloak"),
+        "king's brand": ("upgrade", "King's Brand"),
+        "awoken dream nail": ("upgrade", "Awoken Dream Nail"),
+    }
+    
+    # Collectible achievements
+    collectible_patterns = {
+        "geo": ("collectible", "Geo"),
+        "grub": ("collectible", "Grub"),
+        "relic": ("collectible", "Relic"),
+        "wanderer's journal": ("collectible", "Wanderer's Journal"),
+        "hallownest seal": ("collectible", "Hallownest Seal"),
+        "king's idol": ("collectible", "King's Idol"),
+        "arcadia egg": ("collectible", "Arcadia Egg"),
+        "rancid egg": ("collectible", "Rancid Egg"),
+        "lifeblood core": ("collectible", "Lifeblood Core"),
+        "lifeblood cocoon": ("collectible", "Lifeblood Cocoon"),
+    }
+    
+    # Check for boss achievements
+    for pattern, (achievement_type, name) in boss_patterns.items():
+        if pattern in text and any(word in text for word in ["beat", "defeated", "killed", "fought"]):
+            return (achievement_type, name)
+    
+    # Check for area achievements
+    for pattern, (achievement_type, name) in area_patterns.items():
+        if pattern in text and any(word in text for word in ["explored", "found", "discovered", "reached", "entered"]):
+            return (achievement_type, name)
+    
+    # Check for upgrade achievements
+    for pattern, (achievement_type, name) in upgrade_patterns.items():
+        if pattern in text and any(word in text for word in ["got", "found", "obtained", "upgraded", "unlocked"]):
+            return (achievement_type, name)
+    
+    # Check for collectible achievements
+    for pattern, (achievement_type, name) in collectible_patterns.items():
+        if pattern in text and any(word in text for word in ["got", "found", "collected", "gathered"]):
+            return (achievement_type, name)
+    
+    return None
+
+
 @hollow_group.command(name="leaderboard", description="See who's ahead in the Hallownest journey")
 async def slash_leaderboard(interaction: discord.Interaction) -> None:
-    """Show the leaderboard of most active gamers."""
+    """Show the leaderboard of most accomplished gamers."""
     try:
         if not interaction.guild:
             if not interaction.response.is_done():
@@ -979,10 +1123,10 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
                 )
             return
 
-        # Get user stats from database
-        stats = database.get_user_stats(interaction.guild.id)
+        # Get user achievements from database
+        achievements = database.get_user_achievements(interaction.guild.id)
         
-        if not stats:
+        if not achievements:
             message = "No gamers have started their Hallownest journey yet! Be the first to use `/hollow-bot progress` to record your achievements!"
             if not interaction.response.is_done():
                 await interaction.response.send_message(message)
@@ -990,40 +1134,10 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
                 await interaction.followup.send(message)
             return
 
-        # Magic algorithm to calculate leaderboard scores
-        def calculate_score(user_id: str, total_updates: int, days_active: int, recent_updates: int, first_update_ts: int) -> float:
-            """Calculate a combined score for the leaderboard."""
-            # Base score from total updates (most important)
-            base_score = total_updates * 10
-            
-            # Consistency bonus (days active vs total days since first update)
-            days_since_first = (int(time.time()) - first_update_ts) // 86400
-            if days_since_first > 0:
-                consistency = (days_active / days_since_first) * 5
-            else:
-                consistency = 0
-            
-            # Recent activity bonus (updates in last 7 days)
-            recent_bonus = recent_updates * 3
-            
-            # Longevity bonus (longer active = more points)
-            longevity = min(days_active * 0.5, 20)  # Cap at 20 points
-            
-            return base_score + consistency + recent_bonus + longevity
-
-        # Calculate scores and sort
-        leaderboard_data = []
-        for user_id, total_updates, days_active, recent_updates, first_update_ts in stats:
-            score = calculate_score(user_id, total_updates, days_active, recent_updates, first_update_ts)
-            leaderboard_data.append((user_id, score, total_updates, days_active, recent_updates))
-        
-        # Sort by score (descending)
-        leaderboard_data.sort(key=lambda x: x[1], reverse=True)
-        
         # Build leaderboard message
-        message = "🏆 **Hallownest Journey Leaderboard** 🏆\n\n"
+        message = "🏆 **Hallownest Achievement Leaderboard** 🏆\n\n"
         
-        for i, (user_id, score, total_updates, days_active, recent_updates) in enumerate(leaderboard_data[:10]):
+        for i, (user_id, total_achievements, total_score, unique_types, first_achievement_ts) in enumerate(achievements[:10]):
             try:
                 user = interaction.guild.get_member(int(user_id))
                 if user:
@@ -1044,12 +1158,12 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
                 rank_emoji = f"{i+1}."
             
             message += f"{rank_emoji} **{display_name}**\n"
-            message += f"   📊 Score: {score:.1f} | 📝 Updates: {total_updates} | 📅 Days: {days_active} | 🔥 Recent: {recent_updates}\n\n"
+            message += f"   🏆 Score: {total_score} | 🎯 Achievements: {total_achievements} | 📊 Categories: {unique_types}\n\n"
         
-        if len(leaderboard_data) > 10:
-            message += f"... and {len(leaderboard_data) - 10} more gamers on their journey!\n\n"
+        if len(achievements) > 10:
+            message += f"... and {len(achievements) - 10} more gamers on their journey!\n\n"
         
-        message += "*Score combines total updates, consistency, recent activity, and longevity. Keep grinding, gamers!* 🗡️"
+        message += "*Score based on actual Hollow Knight achievements: Bosses (50pts), Areas (30pts), Upgrades (25pts), Collectibles (10pts). Keep exploring, gamers!* 🗡️"
 
         if not interaction.response.is_done():
             await interaction.response.send_message(message)

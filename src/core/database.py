@@ -103,6 +103,29 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_memories_guild ON memories(guild_id)"
             )
 
+            # Create achievements table for tracking game progress
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS achievements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    achievement_type TEXT NOT NULL,
+                    achievement_name TEXT NOT NULL,
+                    progress_text TEXT NOT NULL,
+                    ts INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_achievements_guild_user ON achievements(guild_id, user_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_achievements_type ON achievements(achievement_type)"
+            )
+
             # Create indexes
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)"
@@ -165,6 +188,29 @@ class DatabaseManager:
 
                 cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_memories_guild ON memories(guild_id)"
+                )
+
+                # Create achievements table for tracking game progress
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS achievements (
+                        id SERIAL PRIMARY KEY,
+                        guild_id VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(255) NOT NULL,
+                        achievement_type VARCHAR(100) NOT NULL,
+                        achievement_name VARCHAR(255) NOT NULL,
+                        progress_text TEXT NOT NULL,
+                        ts BIGINT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_achievements_guild_user ON achievements(guild_id, user_id)"
+                )
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_achievements_type ON achievements(achievement_type)"
                 )
 
                 # Create indexes
@@ -564,6 +610,126 @@ def get_edginess(guild_id: int) -> int:
     except Exception as e:
         log.error(f"Failed to get edginess: {e}")
         raise DatabaseError(f"Failed to retrieve edginess: {e}") from e
+
+
+def add_achievement(guild_id: int, user_id: int, achievement_type: str, achievement_name: str, progress_text: str, ts: int) -> int:
+    """Store a game achievement and return its ID."""
+    if not achievement_type or not achievement_name or not progress_text:
+        raise ValueError("Achievement type, name, and progress text cannot be empty")
+    
+    if ts <= 0:
+        raise ValueError("Timestamp must be positive")
+    
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO achievements (guild_id, user_id, achievement_type, achievement_name, progress_text, ts) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                        (str(guild_id), str(user_id), achievement_type, achievement_name, progress_text.strip(), ts),
+                    )
+                    achievement_id = cur.fetchone()["id"]
+                    conn.commit()
+                    return int(achievement_id)
+            else:
+                cur = conn.execute(
+                    "INSERT INTO achievements (guild_id, user_id, achievement_type, achievement_name, progress_text, ts) VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(guild_id), str(user_id), achievement_type, achievement_name, progress_text.strip(), ts),
+                )
+                conn.commit()
+                return int(cur.lastrowid)
+            log.info(f"Added achievement for guild {guild_id}, user {user_id}: {achievement_name}")
+    except Exception as e:
+        log.error(f"Failed to add achievement: {e}")
+        raise DatabaseError(f"Failed to add achievement: {e}") from e
+
+
+def get_user_achievements(guild_id: int) -> List[Tuple[str, str, int, int, int, int]]:
+    """Get user achievement statistics for leaderboard. Returns (user_id, achievement_type, count, total_score, unique_achievements, first_achievement_ts)."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT 
+                            user_id,
+                            achievement_type,
+                            COUNT(*) as count,
+                            MIN(ts) as first_achievement_ts
+                        FROM achievements 
+                        WHERE guild_id = %s 
+                        GROUP BY user_id, achievement_type
+                        ORDER BY user_id, achievement_type
+                    """, (str(guild_id),))
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute("""
+                    SELECT 
+                        user_id,
+                        achievement_type,
+                        COUNT(*) as count,
+                        MIN(ts) as first_achievement_ts
+                    FROM achievements 
+                    WHERE guild_id = ? 
+                    GROUP BY user_id, achievement_type
+                    ORDER BY user_id, achievement_type
+                """, (str(guild_id),))
+                rows = cur.fetchall()
+            
+            # Process the data to calculate totals per user
+            user_stats = {}
+            for row in rows:
+                user_id = row["user_id"]
+                achievement_type = row["achievement_type"]
+                count = row["count"]
+                first_ts = row["first_achievement_ts"]
+                
+                if user_id not in user_stats:
+                    user_stats[user_id] = {
+                        "total_achievements": 0,
+                        "unique_types": set(),
+                        "first_achievement_ts": first_ts,
+                        "type_counts": {}
+                    }
+                
+                user_stats[user_id]["total_achievements"] += count
+                user_stats[user_id]["unique_types"].add(achievement_type)
+                user_stats[user_id]["type_counts"][achievement_type] = count
+                user_stats[user_id]["first_achievement_ts"] = min(user_stats[user_id]["first_achievement_ts"], first_ts)
+            
+            # Convert to list format and calculate scores
+            result = []
+            for user_id, stats in user_stats.items():
+                # Calculate score based on achievement types and counts
+                total_score = 0
+                for achievement_type, count in stats["type_counts"].items():
+                    # Different achievement types have different point values
+                    if achievement_type == "boss":
+                        total_score += count * 50  # Bosses are worth the most
+                    elif achievement_type == "area":
+                        total_score += count * 30  # Areas are worth medium
+                    elif achievement_type == "upgrade":
+                        total_score += count * 25  # Upgrades are worth medium
+                    elif achievement_type == "collectible":
+                        total_score += count * 10  # Collectibles are worth less
+                    else:
+                        total_score += count * 15  # Default value
+                
+                result.append((
+                    user_id,
+                    stats["total_achievements"],
+                    total_score,
+                    len(stats["unique_types"]),
+                    stats["first_achievement_ts"]
+                ))
+            
+            # Sort by total score descending
+            result.sort(key=lambda x: x[2], reverse=True)
+            return result
+            
+    except Exception as e:
+        log.error(f"Failed to get user achievements: {e}")
+        raise DatabaseError(f"Failed to retrieve user achievements: {e}") from e
 
 
 def get_user_stats(guild_id: int) -> List[Tuple[str, int, int, int, int]]:

@@ -5,7 +5,7 @@ A Discord bot that tracks Hollow Knight progress, analyzes save files, and provi
 ## Features
 
 - **Progress Tracking**: Track your Hollow Knight progress with detailed summaries
-- **Leaderboard System**: Compete with other gamers using a magic algorithm that combines total updates, consistency, recent activity, and longevity
+- **Achievement-Based Leaderboard**: Compete with other gamers based on actual Hollow Knight game achievements (bosses, areas, upgrades, collectibles)
 - **Save File Analysis**: Upload `.dat` save files for automatic progress analysis
 - **AI-Powered Insights**: Get personalized analysis and recommendations using Gemini AI
 - **Daily Summaries**: Receive daily progress recaps
@@ -87,7 +87,7 @@ python -m pytest tests/test_save_parser.py -v
 ### Core Commands
 - `/hollow-bot progress <text>` - Record your latest Hallownest achievement
 - `/hollow-bot get_progress [user]` - Check someone's latest progress
-- `/hollow-bot leaderboard` - See who's ahead in the Hallownest journey
+- `/hollow-bot leaderboard` - See who's ahead based on actual game achievements
 - `/hollow-bot info` - Bot information and version
 
 ### Configuration Commands
@@ -122,7 +122,7 @@ See `docs/DEPLOYMENT.md` for deployment instructions.
 
 ## Version
 
-Current version: 1.8
+Current version: 1.9
 
 ## License
 

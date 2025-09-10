@@ -185,7 +185,7 @@ def test_command_structure():
         from src.core import main
         
         # Check that BOT_VERSION is updated
-        assert main.BOT_VERSION == "1.8", f"Expected BOT_VERSION 1.8, got {main.BOT_VERSION}"
+        assert main.BOT_VERSION == "1.9", f"Expected BOT_VERSION 1.9, got {main.BOT_VERSION}"
         print(f"✅ Bot version: {main.BOT_VERSION}")
         
         # Check that the bot object exists and has the right structure
