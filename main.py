@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.12"
+BOT_VERSION = "1.5"
 
 import asyncio
 import os
@@ -96,28 +96,30 @@ def _build_memories_context(guild: discord.Guild) -> str:
         return "The Chronicler remembers nothing."
 
 
-async def _get_recent_messages(message: discord.Message, limit: int = 10) -> str:
-    """Return up to `limit` previous messages plus the current one for context."""
-    lines: List[str] = []
+async def _get_recent_messages(message: discord.Message, limit: int = 10) -> tuple[str, str]:
+    """Return previous messages and current message separately for clear context."""
+    previous_lines: List[str] = []
     try:
         async for msg in message.channel.history(limit=limit, before=message):
             if msg.author.bot or not msg.content:
                 continue
-            lines.append(f"{msg.author.display_name}: {msg.content.strip()}")
+            previous_lines.append(f"{msg.author.display_name}: {msg.content.strip()}")
     except Exception as e:
         log.warning(f"Failed to fetch recent messages: {e}")
 
-    lines.reverse()
-    lines.append(f"{message.author.display_name}: {message.content.strip()}")
-    return "\n".join(lines)
+    previous_lines.reverse()
+    previous_messages = "\n".join(previous_lines) if previous_lines else "No previous messages."
+    current_message = f"{message.author.display_name}: {message.content.strip()}"
+    
+    return previous_messages, current_message
 
 
 def _should_respond(
-    recent: str, guild_context: str, author: str, custom_context: str
+    previous_messages: str, current_message: str, guild_context: str, author: str, custom_context: str
 ) -> bool:
     """Use AI agent to decide if the bot should reply to a message."""
     try:
-        return agent_should_respond(recent, guild_context, author, custom_context)
+        return agent_should_respond(previous_messages, current_message, guild_context, author, custom_context)
     except Exception as e:
         log.error(f"Error deciding to respond: {e}")
         return False
@@ -214,17 +216,18 @@ async def on_message(message: discord.Message) -> None:
                 age_str = f"{days}d" if days else f"{hours}h"
                 user_context = f'\nYour last progress: "{text}" ({age_str} ago)'
 
-            recent = await _get_recent_messages(message)
+            previous_messages, current_message = await _get_recent_messages(message)
             memories = _build_memories_context(message.guild)
             preamble = ""
             if custom_context:
                 preamble += f"{custom_context}\n"
             preamble += f"Edginess level: {edginess}\n"
             prompt = (
-                f"{preamble}Memories:\n{memories}\n\nRecent conversation:\n{recent}\n\n"
+                f"{preamble}Memories:\n{memories}\n\nPrevious conversation:\n{previous_messages}\n\n"
+                f"CURRENT MESSAGE (the one you're responding to):\n{current_message}\n\n"
                 "Recent updates from everyone:\n"
                 f"{guild_context}{user_context}\n"
-                "Respond as HollowBot, referencing their progress if relevant. "
+                "Respond as HollowBot to the CURRENT MESSAGE, referencing their progress if relevant. "
                 "Keep it short and gamer-like (1-2 sentences max)."
             )
             reply = generate_reply(prompt, edginess=edginess)
@@ -239,21 +242,22 @@ async def on_message(message: discord.Message) -> None:
                 log.info("Spontaneous response triggered in guild %s", message.guild.id)
                 guild_context = _build_updates_context(message.guild)
                 memories = _build_memories_context(message.guild)
-                recent = await _get_recent_messages(message)
+                previous_messages, current_message = await _get_recent_messages(message)
                 custom_context = database.get_custom_context(message.guild.id)
                 edginess = database.get_edginess(message.guild.id)
                 if _should_respond(
-                    recent, guild_context, message.author.display_name, custom_context
+                    previous_messages, current_message, guild_context, message.author.display_name, custom_context
                 ):
                     preamble = ""
                     if custom_context:
                         preamble += f"{custom_context}\n"
                     preamble += f"Edginess level: {edginess}\n"
                     prompt = (
-                        f"{preamble}Memories:\n{memories}\n\nRecent conversation:\n{recent}\n\n"
+                        f"{preamble}Memories:\n{memories}\n\nPrevious conversation:\n{previous_messages}\n\n"
+                        f"CURRENT MESSAGE (the one you're responding to):\n{current_message}\n\n"
                         "Recent updates from everyone:\n"
                         f"{guild_context}\n"
-                        "Respond as HollowBot. Keep it short and gamer-like (1-2 sentences max)."
+                        "Respond as HollowBot to the CURRENT MESSAGE. Keep it short and gamer-like (1-2 sentences max)."
                     )
                     reply = generate_reply(prompt, edginess=edginess)
                     if reply:

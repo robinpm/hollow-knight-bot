@@ -29,14 +29,15 @@ _llm = GeminiLLM()
 
 
 def should_respond(
-    recent: str, guild_context: str, author: str, custom_context: str
+    previous_messages: str, current_message: str, guild_context: str, author: str, custom_context: str
 ) -> bool:
     """Use an LLM to decide if the bot should reply."""
     preamble = f"{custom_context}\n" if custom_context else ""
     prompt = (
-        f"{preamble}Recent conversation:\n{recent}\n\n"
+        f"{preamble}Previous conversation:\n{previous_messages}\n\n"
+        f"CURRENT MESSAGE (the one to potentially respond to):\n{current_message}\n\n"
         f"Recent updates from everyone:\n{guild_context}\n"
-        f"The last message was from {author}. Should HollowBot reply? Answer yes or no."
+        f"Should HollowBot reply to the CURRENT MESSAGE? Answer yes or no."
     )
     try:
         decision = _llm.invoke(prompt).strip().lower()
