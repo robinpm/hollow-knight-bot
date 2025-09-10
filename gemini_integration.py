@@ -77,7 +77,7 @@ class GeminiClient:
 _gemini_client = GeminiClient()
 
 
-def generate_daily_summary(server_name: str, updates_by_user: Dict[str, List[str]]) -> str:
+def generate_daily_summary(server_name: str, updates_by_user: Dict[str, List[str]], edginess: int = 5) -> str:
     """Ask Gemini to draft a playful daily recap.
 
     Args:
@@ -95,6 +95,7 @@ def generate_daily_summary(server_name: str, updates_by_user: Dict[str, List[str
         lines: List[str] = [
             f"Server: {server_name}",
             f"Date (UTC): {date_str}",
+            f"Edginess level: {edginess}",
             "",
             "You are HollowBot, a seasoned Hollow Knight gamer. Write a SHORT daily recap (2-3 sentences max) "
             "that sounds like a gamer friend who's already 112% the game. Mix Hollow Knight lore with real "
@@ -116,12 +117,16 @@ def generate_daily_summary(server_name: str, updates_by_user: Dict[str, List[str
         return "The Chronicler fell silent. Probably got distracted by a particularly shiny geo deposit. Try again later."
 
 
-def generate_reply(prompt: str, model: Optional[str] = None) -> str:
+def generate_reply(
+    prompt: str, model: Optional[str] = None, edginess: Optional[int] = None
+) -> str:
     """Return a quick snarky reply from Gemini."""
     try:
         log.debug("Generating reply with Gemini")
-        # Add instruction to keep responses short
-        short_prompt = f"{prompt}\n\nIMPORTANT: Keep your response SHORT - maximum 1-2 sentences. Be concise and to the point."
+        extra = f"\nEdginess level: {edginess}" if edginess is not None else ""
+        short_prompt = (
+            f"{prompt}{extra}\n\nIMPORTANT: Keep your response SHORT - maximum 1-2 sentences. Be concise and to the point."
+        )
         return _gemini_client.generate_content(short_prompt, model)
     except Exception as e:
         log.error(f"Failed to generate reply: {e}")

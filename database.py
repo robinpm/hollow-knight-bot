@@ -67,6 +67,7 @@ class DatabaseManager:
                     recap_time TEXT,
                     timezone TEXT DEFAULT 'UTC',
                     custom_context TEXT,
+                    edginess INTEGER DEFAULT 5,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -75,6 +76,14 @@ class DatabaseManager:
             # Ensure custom_context column exists for older databases
             try:
                 conn.execute("ALTER TABLE guild_config ADD COLUMN custom_context TEXT")
+            except sqlite3.OperationalError:
+                pass
+
+            # Ensure edginess column exists for older databases
+            try:
+                conn.execute(
+                    "ALTER TABLE guild_config ADD COLUMN edginess INTEGER DEFAULT 5"
+                )
             except sqlite3.OperationalError:
                 pass
             
@@ -107,6 +116,7 @@ class DatabaseManager:
                         recap_time VARCHAR(10),
                         timezone VARCHAR(50) DEFAULT 'UTC',
                         custom_context TEXT,
+                        edginess INTEGER DEFAULT 5,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -115,6 +125,11 @@ class DatabaseManager:
                 # Ensure custom_context column exists for older databases
                 cur.execute(
                     "ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS custom_context TEXT"
+                )
+
+                # Ensure edginess column exists for older databases
+                cur.execute(
+                    "ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS edginess INTEGER DEFAULT 5"
                 )
                 
                 # Create indexes
@@ -391,3 +406,52 @@ def clear_custom_context(guild_id: int) -> None:
     except Exception as e:
         log.error(f"Failed to clear custom context: {e}")
         raise DatabaseError(f"Failed to clear custom context: {e}") from e
+
+
+def set_edginess(guild_id: int, level: int) -> None:
+    """Set edginess level for a guild."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, edginess) VALUES (%s, %s) "
+                        "ON CONFLICT (guild_id) DO UPDATE SET edginess=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), level, level),
+                    )
+                    conn.commit()
+            else:
+                conn.execute(
+                    "INSERT INTO guild_config (guild_id, edginess) VALUES (?, ?) "
+                    "ON CONFLICT(guild_id) DO UPDATE SET edginess=excluded.edginess, updated_at=CURRENT_TIMESTAMP",
+                    (str(guild_id), level),
+                )
+                conn.commit()
+            log.info(f"Set edginess for guild {guild_id} to {level}")
+    except Exception as e:
+        log.error(f"Failed to set edginess: {e}")
+        raise DatabaseError(f"Failed to set edginess: {e}") from e
+
+
+def get_edginess(guild_id: int) -> int:
+    """Get edginess level for a guild. Defaults to 5."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT edginess FROM guild_config WHERE guild_id=%s",
+                        (str(guild_id),),
+                    )
+                    row = cur.fetchone()
+                    return int(row["edginess"]) if row and row["edginess"] is not None else 5
+            else:
+                cur = conn.execute(
+                    "SELECT edginess FROM guild_config WHERE guild_id=?",
+                    (str(guild_id),),
+                )
+                row = cur.fetchone()
+                return int(row["edginess"]) if row and row["edginess"] is not None else 5
+    except Exception as e:
+        log.error(f"Failed to get edginess: {e}")
+        raise DatabaseError(f"Failed to retrieve edginess: {e}") from e

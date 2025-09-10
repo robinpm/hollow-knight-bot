@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.10"
+BOT_VERSION = "1.4.11"
 
 import asyncio
 import os
@@ -147,6 +147,7 @@ def _build_progress_reply(guild: discord.Guild, text: str) -> str:
         validated_text = validate_progress_text(text)
         context = _build_updates_context(guild)
         custom_context = database.get_custom_context(guild.id)
+        edginess = database.get_edginess(guild.id)
 
         # Use direct AI call instead of conversation memory to avoid interference
         preamble = f"{custom_context}\n" if custom_context else ""
@@ -154,7 +155,7 @@ def _build_progress_reply(guild: discord.Guild, text: str) -> str:
             f"{preamble}Recent updates:\n{context}\nNew update: {validated_text}\n\n"
             "Give a short, snarky gamer response (1-2 sentences max) about this progress update."
         )
-        riff = generate_reply(prompt)
+        riff = generate_reply(prompt, edginess=edginess)
 
         reply = f"📝 Echo recorded: {validated_text}"
         if riff and riff not in [
@@ -212,6 +213,7 @@ async def on_message(message: discord.Message) -> None:
 
             log.info("Mention from %s: %s", message.author.id, content)
             custom_context = database.get_custom_context(message.guild.id)
+            edginess = database.get_edginess(message.guild.id)
 
             if PROGRESS_RE.search(content):
                 await handle_progress(message, content)
@@ -231,7 +233,10 @@ async def on_message(message: discord.Message) -> None:
                 user_context = f'\nYour last progress: "{text}" ({age_str} ago)'
 
             recent = await _get_recent_messages(message)
-            preamble = f"{custom_context}\n" if custom_context else ""
+            preamble = ""
+            if custom_context:
+                preamble += f"{custom_context}\n"
+            preamble += f"Edginess level: {edginess}\n"
             prompt = (
                 f"{preamble}Recent conversation:\n{recent}\n\n"
                 "Recent updates from everyone:\n"
@@ -252,10 +257,14 @@ async def on_message(message: discord.Message) -> None:
                 guild_context = _build_updates_context(message.guild)
                 recent = await _get_recent_messages(message)
                 custom_context = database.get_custom_context(message.guild.id)
+                edginess = database.get_edginess(message.guild.id)
                 if _should_respond(
                     recent, guild_context, message.author.display_name, custom_context
                 ):
-                    preamble = f"{custom_context}\n" if custom_context else ""
+                    preamble = ""
+                    if custom_context:
+                        preamble += f"{custom_context}\n"
+                    preamble += f"Edginess level: {edginess}\n"
                     prompt = (
                         f"{preamble}Recent conversation:\n{recent}\n\n"
                         "Recent updates from everyone:\n"
@@ -571,6 +580,86 @@ async def slash_rando_talk(
             )
 
 
+@hollow_group.command(
+    name="edginess",
+    description="View or set how edgy HollowBot's replies are",
+)
+@app_commands.describe(
+    level="Edginess level (1-10). Leave blank to view current level"
+)
+async def slash_edginess(
+    interaction: discord.Interaction, level: Optional[int] = None
+) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Only guild admins can tweak my edginess, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Only guild admins can tweak my edginess, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        if level is None:
+            current = database.get_edginess(interaction.guild.id)
+            message = f"Edginess level is {current}"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(message, ephemeral=True)
+            else:
+                await interaction.followup.send(message, ephemeral=True)
+            return
+
+        if level < 1 or level > 10:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Level must be between 1 and 10, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Level must be between 1 and 10, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        database.set_edginess(interaction.guild.id, level)
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"Edginess set to {level}",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"Edginess set to {level}",
+                ephemeral=True,
+            )
+    except Exception as e:
+        log.error(f"Error in slash_edginess: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection messed with my settings. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection messed with my settings. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
 custom_context_group = app_commands.Group(
     name="custom-context",
     description="Manage custom prompt context for HollowBot in this server",
@@ -784,6 +873,7 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "• `/hollow-bot progress <text>` - Record your progress\n"
             "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
             "• `/hollow-bot rando-talk [0-100]` - View or set my random chatter chance\n"
+            "• `/hollow-bot edginess [1-10]` - View or set my edginess level\n"
             "• `/hollow-bot custom-context set <text>` - Set a custom prompt for this server\n"
             "• `/hollow-bot custom-context show` - Show the current custom prompt\n"
             "• `/hollow-bot custom-context clear` - Clear the custom prompt\n"
@@ -999,7 +1089,8 @@ async def recap_tick() -> None:
                     }
 
                 # Generate and send summary
-                summary = generate_daily_summary(server_name, pretty)
+                edginess = database.get_edginess(int(guild_id))
+                summary = generate_daily_summary(server_name, pretty, edginess)
 
                 channel = bot.get_channel(int(channel_id))
                 if not channel:
