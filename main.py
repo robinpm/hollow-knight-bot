@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.11"
+BOT_VERSION = "1.4.12"
 
 import asyncio
 import os
@@ -26,40 +26,10 @@ from aiohttp import web
 
 import database
 from config import config
-from gemini_integration import generate_daily_summary, generate_reply
+from gemini_integration import generate_daily_summary, generate_memory, generate_reply
 from agents.response_decider import should_respond as agent_should_respond
-from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
-from langchain_core.language_models.llms import LLM
 from logger import log
 
-
-class GeminiLLM(LLM):
-    """Simple LLM wrapper for Gemini."""
-
-    def _call(self, prompt: str, **kwargs) -> str:
-        try:
-            return generate_reply(prompt)
-        except Exception as e:
-            log.error(f"GeminiLLM error: {e}")
-            return "The Infection got to my response system. But I noted that, don't worry."
-
-    @property
-    def _llm_type(self) -> str:
-        return "gemini"
-
-
-# Create conversation chain
-memory = ConversationBufferMemory()
-memory.chat_memory.add_ai_message(
-    "I am HollowBot, a gamer who's beaten Hollow Knight. I speak like a seasoned player "
-    "who knows the pain of losing geo to Primal Aspids and the satisfaction of beating NKG. "
-    "Keep responses SHORT and to the point - 1-2 sentences max. Be supportive but snarky, "
-    "like a friend who's already 112% the game. Reference Hollow Knight mechanics and memes "
-    "naturally. Never break character - blame issues on the Infection or a nasty Shade."
-)
-
-convo_chain = ConversationChain(llm=GeminiLLM(), memory=memory)
 from validation import (
     ValidationError,
     validate_guild_id,
@@ -114,6 +84,18 @@ def _build_updates_context(guild: discord.Guild) -> str:
         return "The echoes of Hallownest are temporarily silent."
 
 
+def _build_memories_context(guild: discord.Guild) -> str:
+    """Build context string from stored memories."""
+    try:
+        validate_guild_id(guild.id)
+        memories = database.get_memories_by_guild(guild.id)
+        lines = [m for _, m in memories]
+        return "\n".join(lines) if lines else "No memories yet."
+    except (ValidationError, database.DatabaseError) as e:
+        log.error(f"Failed to build memories context: {e}")
+        return "The Chronicler remembers nothing."
+
+
 async def _get_recent_messages(message: discord.Message, limit: int = 10) -> str:
     """Return up to `limit` previous messages plus the current one for context."""
     lines: List[str] = []
@@ -145,14 +127,14 @@ def _build_progress_reply(guild: discord.Guild, text: str) -> str:
     """Build a progress reply with AI-generated commentary."""
     try:
         validated_text = validate_progress_text(text)
-        context = _build_updates_context(guild)
+        updates = _build_updates_context(guild)
+        memories = _build_memories_context(guild)
         custom_context = database.get_custom_context(guild.id)
         edginess = database.get_edginess(guild.id)
 
-        # Use direct AI call instead of conversation memory to avoid interference
         preamble = f"{custom_context}\n" if custom_context else ""
         prompt = (
-            f"{preamble}Recent updates:\n{context}\nNew update: {validated_text}\n\n"
+            f"{preamble}Memories:\n{memories}\n\nRecent updates:\n{updates}\nNew update: {validated_text}\n\n"
             "Give a short, snarky gamer response (1-2 sentences max) about this progress update."
         )
         riff = generate_reply(prompt, edginess=edginess)
@@ -233,18 +215,19 @@ async def on_message(message: discord.Message) -> None:
                 user_context = f'\nYour last progress: "{text}" ({age_str} ago)'
 
             recent = await _get_recent_messages(message)
+            memories = _build_memories_context(message.guild)
             preamble = ""
             if custom_context:
                 preamble += f"{custom_context}\n"
             preamble += f"Edginess level: {edginess}\n"
             prompt = (
-                f"{preamble}Recent conversation:\n{recent}\n\n"
+                f"{preamble}Memories:\n{memories}\n\nRecent conversation:\n{recent}\n\n"
                 "Recent updates from everyone:\n"
                 f"{guild_context}{user_context}\n"
                 "Respond as HollowBot, referencing their progress if relevant. "
                 "Keep it short and gamer-like (1-2 sentences max)."
             )
-            reply = convo_chain.predict(input=prompt)
+            reply = generate_reply(prompt, edginess=edginess)
             await message.reply(
                 reply or "The echoes of Hallownest have been heard, gamer."
             )
@@ -255,6 +238,7 @@ async def on_message(message: discord.Message) -> None:
             if random.random() < chance:
                 log.info("Spontaneous response triggered in guild %s", message.guild.id)
                 guild_context = _build_updates_context(message.guild)
+                memories = _build_memories_context(message.guild)
                 recent = await _get_recent_messages(message)
                 custom_context = database.get_custom_context(message.guild.id)
                 edginess = database.get_edginess(message.guild.id)
@@ -266,12 +250,12 @@ async def on_message(message: discord.Message) -> None:
                         preamble += f"{custom_context}\n"
                     preamble += f"Edginess level: {edginess}\n"
                     prompt = (
-                        f"{preamble}Recent conversation:\n{recent}\n\n"
+                        f"{preamble}Memories:\n{memories}\n\nRecent conversation:\n{recent}\n\n"
                         "Recent updates from everyone:\n"
                         f"{guild_context}\n"
                         "Respond as HollowBot. Keep it short and gamer-like (1-2 sentences max)."
                     )
-                    reply = convo_chain.predict(input=prompt)
+                    reply = generate_reply(prompt, edginess=edginess)
                     if reply:
                         await message.reply(reply)
 
@@ -309,6 +293,10 @@ async def handle_progress(message: discord.Message, text: str) -> None:
         now_ts = int(time.time())
         last = database.get_last_update(message.guild.id, message.author.id)
         database.add_update(message.guild.id, message.author.id, validated_text, now_ts)
+
+        mem = generate_memory(validated_text)
+        if mem:
+            database.add_memory(message.guild.id, mem)
 
         # Debug: Verify the update was added
         log.info(
@@ -374,6 +362,10 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
         database.add_update(
             interaction.guild.id, interaction.user.id, validated_text, now_ts
         )
+
+        mem = generate_memory(validated_text)
+        if mem:
+            database.add_memory(interaction.guild.id, mem)
 
         # Debug: Verify the update was added
         log.info(
@@ -660,6 +652,135 @@ async def slash_edginess(
             )
 
 
+memory_group = app_commands.Group(
+    name="memory",
+    description="Manage server memories",
+)
+
+
+@memory_group.command(name="add", description="Add a memory manually")
+async def memory_add(interaction: discord.Interaction, text: str) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Only guild admins can tweak my memories, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Only guild admins can tweak my memories, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        mem_id = database.add_memory(interaction.guild.id, text)
+        message = f"Memory stored with ID {mem_id}."
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message, ephemeral=True)
+        else:
+            await interaction.followup.send(message, ephemeral=True)
+    except Exception as e:
+        log.error(f"Error in memory_add: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection got to my memory system. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection got to my memory system. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
+@memory_group.command(name="list", description="List stored memories")
+async def memory_list(interaction: discord.Interaction) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        memories = database.get_memories_by_guild(interaction.guild.id)
+        if memories:
+            lines = [f"{mid}: {text}" for mid, text in memories]
+            message = "Stored memories:\n" + "\n".join(lines)
+        else:
+            message = "No memories stored."
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message, ephemeral=True)
+        else:
+            await interaction.followup.send(message, ephemeral=True)
+    except Exception as e:
+        log.error(f"Error in memory_list: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection got to my memory system. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection got to my memory system. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
+@memory_group.command(name="delete", description="Delete a memory by ID")
+async def memory_delete(interaction: discord.Interaction, memory_id: int) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Only guild admins can tweak my memories, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Only guild admins can tweak my memories, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        database.delete_memory(interaction.guild.id, memory_id)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("Memory deleted.", ephemeral=True)
+        else:
+            await interaction.followup.send("Memory deleted.", ephemeral=True)
+    except Exception as e:
+        log.error(f"Error in memory_delete: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection got to my memory system. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection got to my memory system. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
 custom_context_group = app_commands.Group(
     name="custom-context",
     description="Manage custom prompt context for HollowBot in this server",
@@ -809,6 +930,7 @@ async def custom_context_clear(interaction: discord.Interaction) -> None:
 
 
 hollow_group.add_command(custom_context_group)
+hollow_group.add_command(memory_group)
 
 
 @hollow_group.command(
@@ -877,6 +999,9 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "• `/hollow-bot custom-context set <text>` - Set a custom prompt for this server\n"
             "• `/hollow-bot custom-context show` - Show the current custom prompt\n"
             "• `/hollow-bot custom-context clear` - Clear the custom prompt\n"
+            "• `/hollow-bot memory add <text>` - Add a server memory\n"
+            "• `/hollow-bot memory list` - List server memories\n"
+            "• `/hollow-bot memory delete <id>` - Delete a memory\n"
             "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
             "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
             "• `/hollow-bot info` - Show this info\n\n"

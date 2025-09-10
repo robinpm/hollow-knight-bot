@@ -1,7 +1,6 @@
 from typing import Optional
 
 from langchain.agents import AgentType, initialize_agent
-from langchain.memory import ConversationBufferMemory
 from langchain_core.language_models.llms import LLM
 
 from gemini_integration import generate_reply
@@ -23,15 +22,13 @@ class GeminiLLM(LLM):
         return "gemini"
 
 
-# Persistent memory so the agent has context across decisions
-_memory = ConversationBufferMemory(memory_key="chat_history")
+# Stateless agent for response decisions
 _llm = GeminiLLM()
 _agent = initialize_agent(
     tools=[],
     llm=_llm,
     agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
     verbose=False,
-    memory=_memory,
 )
 
 

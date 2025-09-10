@@ -131,3 +131,17 @@ def generate_reply(
     except Exception as e:
         log.error(f"Failed to generate reply: {e}")
         return "The Infection got to my response system. But I noted that, don't worry."
+
+
+def generate_memory(text: str) -> str:
+    """Create a concise memory from a progress update."""
+    try:
+        prompt = (
+            "You are HollowBot. Given the following progress update, create a short memory to "
+            "remember about this server. Keep it under one sentence and avoid generic replies.\n"
+            f"Progress update: {text}\nMemory:"
+        )
+        return _gemini_client.generate_content(prompt)
+    except Exception as e:
+        log.error(f"Failed to generate memory: {e}")
+        return ""
