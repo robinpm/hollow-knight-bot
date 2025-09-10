@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.6.1"
+BOT_VERSION = "1.7"
 
 import asyncio
 import os
