@@ -49,6 +49,9 @@ bot.sqlite3
 hollow_bot.log
 *.log
 
+# Game save files
+*.dat
+
 # Environment variables
 .env
 .env.local

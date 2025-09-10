@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.5.1"
+BOT_VERSION = "1.6"
 
 import asyncio
 import os
@@ -28,6 +28,7 @@ import database
 from config import config
 from gemini_integration import generate_daily_summary, generate_memory, generate_reply
 from agents.response_decider import should_respond as agent_should_respond
+from save_parser import parse_hk_save, format_save_summary, generate_save_analysis, SaveDataError
 from logger import log
 
 from validation import (
@@ -176,6 +177,14 @@ async def on_message(message: discord.Message) -> None:
         return
 
     content = message.content.strip()
+    
+    # Check for .dat file attachments (Hollow Knight save data)
+    if message.attachments:
+        for attachment in message.attachments:
+            if attachment.filename.lower().endswith('.dat'):
+                await handle_save_data(message, attachment)
+                return
+    
     if not content:
         return
 
@@ -334,6 +343,47 @@ async def handle_progress(message: discord.Message, text: str) -> None:
         log.error(f"Unexpected error in handle_progress: {e}")
         await message.reply(
             "The Infection got to my progress tracking system. But I'll try to remember that, gamer!"
+        )
+
+
+async def handle_save_data(message: discord.Message, attachment: discord.Attachment) -> None:
+    """Handle Hollow Knight save data file uploads."""
+    try:
+        log.info(f"Processing save data from {message.author.display_name}: {attachment.filename}")
+        
+        # Download the file content
+        file_content = await attachment.read()
+        
+        # Parse the save data
+        summary = parse_hk_save(file_content)
+        
+        # Format the summary
+        formatted_summary = format_save_summary(summary)
+        
+        # Generate AI analysis
+        analysis = generate_save_analysis(summary)
+        
+        # Send the response
+        response = f"{formatted_summary}\n\n{analysis}"
+        await message.reply(response)
+        
+        # Also store this as a progress update
+        progress_text = f"Uploaded save data: {summary['completion_percent']}% complete, {summary['playtime_hours']}h playtime"
+        now_ts = int(time.time())
+        database.add_update(message.guild.id, message.author.id, progress_text, now_ts)
+        
+        log.info(f"Successfully processed save data for user {message.author.id}")
+        
+    except SaveDataError as e:
+        log.warning(f"Save data parsing error: {e}")
+        await message.reply(
+            f"Gamer, that save file seems corrupted by the Infection! {e}\n\n"
+            "Make sure you're uploading a valid Hollow Knight save file (.dat format)."
+        )
+    except Exception as e:
+        log.error(f"Unexpected error processing save data: {e}")
+        await message.reply(
+            "The Infection got to my save data analyzer! But I heard you uploaded something, gamer!"
         )
 
 
