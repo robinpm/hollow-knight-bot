@@ -3,8 +3,11 @@
 import pytest
 import json
 import os
-from save_parser import parse_hk_save, format_save_summary, generate_save_analysis, SaveDataError
-from hollow_knight_decrypt import decrypt_hollow_knight_save, HollowKnightDecryptor
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from src.save_parsing.save_parser import parse_hk_save, format_save_summary, generate_save_analysis, SaveDataError
+from src.save_parsing.hollow_knight_decrypt import decrypt_hollow_knight_save, HollowKnightDecryptor
 
 
 class TestHollowKnightDecryption:
@@ -52,12 +55,12 @@ class TestSaveFileParsing:
     @pytest.fixture
     def fresh_save_file(self):
         """Fresh save file fixture."""
-        return "%WinAppDataLocalLow%Team Cherry_Hollow Knight_user1.dat"
+        return os.path.join(os.path.dirname(__file__), "test_data", "fresh_save.dat")
     
     @pytest.fixture
     def midgame_save_file(self):
         """Mid-game save file fixture."""
-        return "user1 (1).dat"
+        return os.path.join(os.path.dirname(__file__), "test_data", "midgame_save.dat")
     
     def test_fresh_save_parsing(self, fresh_save_file):
         """Test parsing of fresh save file."""
@@ -163,12 +166,12 @@ class TestSaveSummaryFormatting:
     @pytest.fixture
     def fresh_save_file(self):
         """Fresh save file fixture."""
-        return "%WinAppDataLocalLow%Team Cherry_Hollow Knight_user1.dat"
+        return os.path.join(os.path.dirname(__file__), "test_data", "fresh_save.dat")
     
     @pytest.fixture
     def midgame_save_file(self):
         """Mid-game save file fixture."""
-        return "user1 (1).dat"
+        return os.path.join(os.path.dirname(__file__), "test_data", "midgame_save.dat")
     
     def test_fresh_save_formatting(self, fresh_save_file):
         """Test formatting of fresh save summary."""
@@ -212,12 +215,12 @@ class TestSaveAnalysis:
     @pytest.fixture
     def fresh_save_file(self):
         """Fresh save file fixture."""
-        return "%WinAppDataLocalLow%Team Cherry_Hollow Knight_user1.dat"
+        return os.path.join(os.path.dirname(__file__), "test_data", "fresh_save.dat")
     
     @pytest.fixture
     def midgame_save_file(self):
         """Mid-game save file fixture."""
-        return "user1 (1).dat"
+        return os.path.join(os.path.dirname(__file__), "test_data", "midgame_save.dat")
     
     def test_fresh_save_analysis(self, fresh_save_file):
         """Test AI analysis of fresh save."""

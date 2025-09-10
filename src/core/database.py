@@ -3,11 +3,12 @@
 import logging
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
-from config import config
+from .config import config
 
 log = logging.getLogger(__name__)
 
@@ -563,3 +564,43 @@ def get_edginess(guild_id: int) -> int:
     except Exception as e:
         log.error(f"Failed to get edginess: {e}")
         raise DatabaseError(f"Failed to retrieve edginess: {e}") from e
+
+
+def get_user_stats(guild_id: int) -> List[Tuple[str, int, int, int, int]]:
+    """Get user statistics for leaderboard. Returns (user_id, total_updates, days_active, recent_updates, first_update_ts)."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT 
+                            user_id,
+                            COUNT(*) as total_updates,
+                            COUNT(DISTINCT DATE(FROM_UNIXTIME(ts))) as days_active,
+                            COUNT(CASE WHEN ts >= %s THEN 1 END) as recent_updates,
+                            MIN(ts) as first_update_ts
+                        FROM progress 
+                        WHERE guild_id = %s 
+                        GROUP BY user_id 
+                        ORDER BY total_updates DESC, days_active DESC, recent_updates DESC
+                    """, (int(time.time()) - 7 * 24 * 3600, str(guild_id)))
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute("""
+                    SELECT 
+                        user_id,
+                        COUNT(*) as total_updates,
+                        COUNT(DISTINCT DATE(datetime(ts, 'unixepoch'))) as days_active,
+                        COUNT(CASE WHEN ts >= ? THEN 1 END) as recent_updates,
+                        MIN(ts) as first_update_ts
+                    FROM progress 
+                    WHERE guild_id = ? 
+                    GROUP BY user_id 
+                    ORDER BY total_updates DESC, days_active DESC, recent_updates DESC
+                """, (int(time.time()) - 7 * 24 * 3600, str(guild_id)))
+                rows = cur.fetchall()
+            
+            return [(row["user_id"], row["total_updates"], row["days_active"], row["recent_updates"], row["first_update_ts"]) for row in rows]
+    except Exception as e:
+        log.error(f"Failed to get user stats: {e}")
+        raise DatabaseError(f"Failed to retrieve user stats: {e}") from e

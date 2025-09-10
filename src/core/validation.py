@@ -3,7 +3,7 @@
 import re
 from typing import Optional
 
-from logger import log
+from .logger import log
 
 
 class ValidationError(Exception):

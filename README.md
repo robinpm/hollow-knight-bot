@@ -1,48 +1,48 @@
-# Hollow Knight Bot
+# Hollow Knight Discord Bot
 
-A Discord bot that tracks Hollow Knight progress and provides daily recaps with an authentic gamer personality. The bot maintains character consistency as a seasoned Hollow Knight player who's already 112% the game.
+A Discord bot that tracks Hollow Knight progress, analyzes save files, and provides AI-powered insights about your Hallownest journey.
 
 ## Features
 
-- **Progress Tracking**: Record and track Hollow Knight achievements
-- **Daily Recaps**: AI-generated daily summaries with Hollow Knight lore and gaming memes
-- **Character Consistency**: Maintains authentic gamer Hollow Knight personality
-- **Spontaneous Chat**: Occasionally replies to regular channel messages
-- **Robust Error Handling**: Graceful failure handling with in-character responses
-- **Input Validation**: Comprehensive validation and sanitization
-- **Database Management**: SQLite-based progress storage with proper connection handling
+- **Progress Tracking**: Track your Hollow Knight progress with detailed summaries
+- **Leaderboard System**: Compete with other gamers using a magic algorithm that combines total updates, consistency, recent activity, and longevity
+- **Save File Analysis**: Upload `.dat` save files for automatic progress analysis
+- **AI-Powered Insights**: Get personalized analysis and recommendations using Gemini AI
+- **Daily Summaries**: Receive daily progress recaps
+- **Memory System**: Bot remembers your progress and provides contextual responses
+- **Customizable Personality**: Adjust bot's edginess level and random chatter frequency
 
-## Architecture
+## Project Structure
 
-### Core Components
+```
+hollow-knight-bot/
+├── main.py                 # Main entry point
+├── requirements.txt        # Python dependencies
+├── render.yaml            # Deployment configuration
+├── src/                   # Source code
+│   ├── core/              # Core bot functionality
+│   │   ├── main.py        # Main bot logic
+│   │   ├── config.py      # Configuration management
+│   │   ├── database.py    # Database operations
+│   │   ├── logger.py      # Logging configuration
+│   │   └── validation.py  # Input validation
+│   ├── ai/                # AI and agent functionality
+│   │   ├── gemini_integration.py  # Gemini AI integration
+│   │   └── agents/        # AI agents
+│   │       └── response_decider.py  # Response decision logic
+│   └── save_parsing/      # Save file parsing and decryption
+│       ├── save_parser.py         # Save file parser
+│       └── hollow_knight_decrypt.py  # Save file decryption
+├── tests/                 # Test suite
+│   ├── test_bot.py        # Bot integration tests
+│   └── test_save_parser.py # Save parsing tests
+├── docs/                  # Documentation
+│   ├── README.md          # This file
+│   └── DEPLOYMENT.md      # Deployment guide
+└── hollow/                # External hollow repository (for reference)
+```
 
-- **`main.py`**: Main bot application with Discord event handlers
-- **`config.py`**: Configuration management with environment variable support
-- **`database.py`**: Database layer with connection management and error handling
-- **`gemini_integration.py`**: AI integration with retry logic and fallback responses
-- **`validation.py`**: Input validation and sanitization
-- **`logger.py`**: Centralized logging configuration
-- **`langchain/`**: LangChain integration for conversation management
-
-### Key Improvements
-
-1. **Robust Error Handling**: All operations wrapped in try-catch blocks with appropriate logging
-2. **Input Validation**: Comprehensive validation for all user inputs
-3. **Database Safety**: Connection management with context managers and proper error handling
-4. **AI Resilience**: Retry logic with exponential backoff for AI API calls
-5. **Character Consistency**: All error messages maintain the Hollow Knight gamer persona
-6. **Configuration Management**: Centralized config with validation
-7. **Logging**: Structured logging with file and console output
-
-## Setup
-
-### Prerequisites
-
-- Python 3.8+
-- Discord Bot Token
-- Google Gemini API Key
-
-### Installation
+## Installation
 
 1. Clone the repository:
 ```bash
@@ -55,128 +55,75 @@ cd hollow-knight-bot
 pip install -r requirements.txt
 ```
 
-3. Set environment variables:
+3. Set up environment variables:
 ```bash
-export DISCORD_TOKEN="your_discord_bot_token"
-export GEMINI_API_KEY="your_gemini_api_key"
-export DATABASE_PATH="bot.sqlite3"  # Optional, defaults to bot.sqlite3
-export GEMINI_MODEL="gemini-2.0-flash"  # Optional, defaults to gemini-2.0-flash
-export LOG_LEVEL="INFO"  # Optional, defaults to INFO
-export COMMAND_PREFIX="!"  # Optional, defaults to "!"
-export SPONTANEOUS_RESPONSE_CHANCE="0.05"  # Optional, chance bot replies to any message (0-1)
+export DISCORD_TOKEN="your-discord-bot-token"
+export GEMINI_API_KEY="your-gemini-api-key"
 ```
 
-4. Run the bot:
+## Usage
+
+### Running the Bot
+
 ```bash
 python main.py
 ```
 
-## Configuration
+### Testing
 
-The bot uses environment variables for configuration:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DISCORD_TOKEN` | Yes | - | Discord bot token |
-| `GEMINI_API_KEY` | Yes | - | Google Gemini API key |
-| `DATABASE_PATH` | No | `bot.sqlite3` | SQLite database file path |
-| `GEMINI_MODEL` | No | `gemini-2.0-flash` | Gemini model to use |
-| `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
-| `COMMAND_PREFIX` | No | `!` | Prefix for text commands |
-| `MAX_RETRIES` | No | `3` | Maximum retry attempts for API calls |
-| `REQUEST_TIMEOUT` | No | `30` | Request timeout in seconds |
-| `SPONTANEOUS_RESPONSE_CHANCE` | No | `0.05` | Chance the bot replies to any message |
-
-## Commands
-
-### Slash Commands
-
-- `/hollow-bot progress <text>`: Record your latest Hallownest achievement
-- `/hollow-bot get_progress [user]`: Check the latest echo from a gamer's journey
-- `/hollow-bot rando-talk [0-100]`: View or set chance the bot replies to random messages
-- `/hollow-bot set_reminder_channel`: Set the chronicle channel for daily echoes
-- `/hollow-bot schedule_daily_reminder <time>`: Schedule when the chronicle echoes daily (UTC)
-
-### Mention Commands
-
-- `@HollowBot <message>`: Chat with the bot
-- `@HollowBot progress <achievement>`: Record progress (alternative to slash command)
-
-## Database Schema
-
-### Tables
-
-- **`progress`**: Stores user progress updates
-  - `guild_id`: Discord guild ID
-  - `user_id`: Discord user ID
-  - `update_text`: Progress description
-  - `ts`: Unix timestamp
-  - `created_at`: Creation timestamp
-
-- **`guild_config`**: Stores guild-specific settings
-  - `guild_id`: Discord guild ID (primary key)
-  - `recap_channel_id`: Channel for daily recaps
-  - `recap_time_utc`: UTC time for daily recaps (HH:MM format)
-  - `created_at`: Creation timestamp
-  - `updated_at`: Last update timestamp
-
-## Error Handling
-
-The bot implements comprehensive error handling:
-
-1. **Validation Errors**: Input validation with user-friendly error messages
-2. **Database Errors**: Connection management with graceful degradation
-3. **API Errors**: Retry logic with exponential backoff
-4. **Discord Errors**: Proper error responses and logging
-5. **Character Consistency**: All errors maintain the Hollow Knight gamer persona
-
-## Logging
-
-Logs are written to both console and `hollow_bot.log` file with structured formatting:
-
+Run the test suite:
+```bash
+python -m pytest tests/ -v
 ```
-2024-01-15 10:30:45 - hollowbot - INFO - HollowBot logged in as HollowBot#1234
-2024-01-15 10:30:46 - hollowbot - DEBUG - Built conversation chain with HollowBot persona
+
+Run individual test files:
+```bash
+python tests/test_bot.py
+python -m pytest tests/test_save_parser.py -v
 ```
+
+## Bot Commands
+
+### Core Commands
+- `/hollow-bot progress <text>` - Record your latest Hallownest achievement
+- `/hollow-bot get_progress [user]` - Check someone's latest progress
+- `/hollow-bot leaderboard` - See who's ahead in the Hallownest journey
+- `/hollow-bot info` - Bot information and version
+
+### Configuration Commands
+- `/hollow-bot rando-talk [0-100]` - View or set my random chatter chance
+- `/hollow-bot edginess [1-10]` - View or set my edginess level
+- `/hollow-bot custom-context <action> [text]` - Manage custom prompt context (set/show/clear)
+- `/hollow-bot memory <action> [text/id]` - Manage server memories (add/list/delete)
+- `/hollow-bot set_reminder_channel` - Set daily recap channel
+- `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps
+
+### Chat
+- `@HollowBot <message>` - Chat with the bot (it remembers your conversations!)
+
+## Save File Support
+
+The bot can analyze Hollow Knight save files (`.dat` files) by:
+1. Decrypting the save file using the bloodorca/hollow method
+2. Extracting progress data (playtime, completion, geo, health, etc.)
+3. Generating AI-powered analysis and recommendations
 
 ## Development
 
-### Code Quality
+The project is organized into logical modules:
+- **Core**: Main bot functionality, configuration, database, logging
+- **AI**: Gemini integration and AI agents
+- **Save Parsing**: Save file decryption and parsing
+- **Tests**: Comprehensive test suite
 
-The codebase follows these principles:
+## Deployment
 
-- **Type Hints**: Comprehensive type annotations
-- **Error Handling**: Try-catch blocks for all operations
-- **Validation**: Input validation and sanitization
-- **Logging**: Structured logging throughout
-- **Documentation**: Docstrings for all functions and classes
+See `docs/DEPLOYMENT.md` for deployment instructions.
 
-### Testing
+## Version
 
-Run tests with:
-```bash
-pytest
-```
-
-### Code Formatting
-
-Format code with:
-```bash
-black .
-flake8 .
-mypy .
-```
-
-## Character Consistency
-
-The bot maintains a consistent Hollow Knight gamer personality:
-
-- **Knowledge**: References specific bosses, locations, and mechanics
-- **Voice**: Supportive but playfully snarky about progress
-- **Lore Integration**: Natural use of Hollow Knight terminology
-- **Error Handling**: Even failures are blamed on in-universe causes
-- **Authenticity**: Sounds like a friend who's already mastered the game
+Current version: 1.8
 
 ## License
 
-This project is licensed under the MIT License.
+[Add your license here]

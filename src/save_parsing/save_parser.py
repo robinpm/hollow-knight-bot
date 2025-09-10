@@ -4,8 +4,8 @@ import json
 import io
 from typing import Dict, Any, Optional
 
-from logger import log
-from hollow_knight_decrypt import decrypt_hollow_knight_save
+from ..core.logger import log
+from .hollow_knight_decrypt import decrypt_hollow_knight_save
 
 
 class SaveDataError(Exception):

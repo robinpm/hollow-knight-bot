@@ -6,8 +6,8 @@ from typing import Dict, List, Optional
 
 import google.generativeai as genai
 
-from config import config
-from logger import log
+from ..core.config import config
+from ..core.logger import log
 
 
 class GeminiError(Exception):

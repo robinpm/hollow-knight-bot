@@ -49,8 +49,9 @@ bot.sqlite3
 hollow_bot.log
 *.log
 
-# Game save files
+# Game save files (ignore root .dat files, but allow test data)
 *.dat
+!tests/test_data/*.dat
 
 # Environment variables
 .env
