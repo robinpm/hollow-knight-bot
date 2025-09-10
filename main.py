@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.8"
+BOT_VERSION = "1.4.9"
 
 import asyncio
 import os
@@ -561,12 +561,15 @@ async def slash_rando_talk(
             )
 
 
-@hollow_group.command(
+custom_context_group = app_commands.Group(
     name="custom-context",
-    description="Set custom prompt context for HollowBot in this server",
+    description="Manage custom prompt context for HollowBot in this server",
 )
+
+
+@custom_context_group.command(name="set", description="Set custom prompt context")
 @app_commands.describe(text="Additional context for HollowBot's replies")
-async def slash_custom_context(interaction: discord.Interaction, text: str) -> None:
+async def custom_context_set(interaction: discord.Interaction, text: str) -> None:
     try:
         if not interaction.guild:
             if not interaction.response.is_done():
@@ -590,26 +593,27 @@ async def slash_custom_context(interaction: discord.Interaction, text: str) -> N
             return
 
         validated = validate_custom_context(text)
+        previous = database.get_custom_context(interaction.guild.id)
         database.set_custom_context(interaction.guild.id, validated)
 
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "Custom context updated!",
-                ephemeral=True,
-            )
+        message = "Custom context updated!"
+        if previous:
+            message += f" Previous: {previous}"
         else:
-            await interaction.followup.send(
-                "Custom context updated!",
-                ephemeral=True,
-            )
+            message += " Previous: none"
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message, ephemeral=True)
+        else:
+            await interaction.followup.send(message, ephemeral=True)
     except ValidationError as e:
-        log.warning(f"Validation error in slash_custom_context: {e}")
+        log.warning(f"Validation error in custom_context_set: {e}")
         if not interaction.response.is_done():
             await interaction.response.send_message(str(e), ephemeral=True)
         else:
             await interaction.followup.send(str(e), ephemeral=True)
     except Exception as e:
-        log.error(f"Error in slash_custom_context: {e}")
+        log.error(f"Error in custom_context_set: {e}")
         if not interaction.response.is_done():
             await interaction.response.send_message(
                 "The Infection got to my context system. Try again later, gamer!",
@@ -620,6 +624,92 @@ async def slash_custom_context(interaction: discord.Interaction, text: str) -> N
                 "The Infection got to my context system. Try again later, gamer!",
                 ephemeral=True,
             )
+
+
+@custom_context_group.command(name="show", description="Show current custom prompt context")
+async def custom_context_show(interaction: discord.Interaction) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        context = database.get_custom_context(interaction.guild.id)
+        message = (
+            f"Current custom context: {context}" if context else "No custom context set."
+        )
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message, ephemeral=True)
+        else:
+            await interaction.followup.send(message, ephemeral=True)
+    except Exception as e:
+        log.error(f"Error in custom_context_show: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection got to my context system. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection got to my context system. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
+@custom_context_group.command(name="clear", description="Clear custom prompt context")
+async def custom_context_clear(interaction: discord.Interaction) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        if not is_admin(interaction.user):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Only guild admins can tweak my context, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Only guild admins can tweak my context, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        previous = database.get_custom_context(interaction.guild.id)
+        database.clear_custom_context(interaction.guild.id)
+
+        message = "Custom context cleared."
+        if previous:
+            message += f" Previous: {previous}"
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message, ephemeral=True)
+        else:
+            await interaction.followup.send(message, ephemeral=True)
+    except Exception as e:
+        log.error(f"Error in custom_context_clear: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection got to my context system. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection got to my context system. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
+hollow_group.add_command(custom_context_group)
 
 
 @hollow_group.command(
@@ -684,7 +774,9 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "• `/hollow-bot progress <text>` - Record your progress\n"
             "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
             "• `/hollow-bot rando-talk <0-100>` - Set my random chatter chance\n"
-            "• `/hollow-bot custom-context <text>` - Set a custom prompt for this server\n"
+            "• `/hollow-bot custom-context set <text>` - Set a custom prompt for this server\n"
+            "• `/hollow-bot custom-context show` - Show the current custom prompt\n"
+            "• `/hollow-bot custom-context clear` - Clear the custom prompt\n"
             "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
             "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
             "• `/hollow-bot info` - Show this info\n\n"
