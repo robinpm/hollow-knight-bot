@@ -1,5 +1,6 @@
 from typing import Optional
 
+
 from langchain_core.language_models.llms import LLM
 
 from gemini_integration import generate_reply
@@ -21,8 +22,10 @@ class GeminiLLM(LLM):
         return "gemini"
 
 
+
 # Stateless LLM for response decisions
 _llm = GeminiLLM()
+
 
 
 def should_respond(
