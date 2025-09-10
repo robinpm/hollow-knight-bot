@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.4.9"
+BOT_VERSION = "1.4.10"
 
 import asyncio
 import os
@@ -27,6 +27,7 @@ from aiohttp import web
 import database
 from config import config
 from gemini_integration import generate_daily_summary, generate_reply
+from agents.response_decider import should_respond as agent_should_respond
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory
 from langchain_core.language_models.llms import LLM
@@ -132,16 +133,9 @@ async def _get_recent_messages(message: discord.Message, limit: int = 10) -> str
 def _should_respond(
     recent: str, guild_context: str, author: str, custom_context: str
 ) -> bool:
-    """Use AI to decide if the bot should reply to a message."""
+    """Use AI agent to decide if the bot should reply to a message."""
     try:
-        preamble = f"{custom_context}\n" if custom_context else ""
-        prompt = (
-            f"{preamble}Recent conversation:\n{recent}\n\n"
-            f"Recent updates from everyone:\n{guild_context}\n"
-            f"The last message was from {author}. Should HollowBot reply? Answer yes or no."
-        )
-        decision = generate_reply(prompt).strip().lower()
-        return decision.startswith("y")
+        return agent_should_respond(recent, guild_context, author, custom_context)
     except Exception as e:
         log.error(f"Error deciding to respond: {e}")
         return False
@@ -494,11 +488,13 @@ async def slash_get_progress(
 
 @hollow_group.command(
     name="rando-talk",
-    description="Set chance HollowBot replies to random chatter",
+    description="View or set chance HollowBot replies to random chatter",
 )
-@app_commands.describe(chance="Percentage chance (0-100)")
+@app_commands.describe(
+    chance="Percentage chance (0-100). Leave blank to view current setting"
+)
 async def slash_rando_talk(
-    interaction: discord.Interaction, chance: int
+    interaction: discord.Interaction, chance: Optional[int] = None
 ) -> None:
     try:
         if not interaction.guild:
@@ -520,6 +516,20 @@ async def slash_rando_talk(
                     "Only guild admins can tweak my chatter settings, gamer!",
                     ephemeral=True,
                 )
+            return
+
+        if chance is None:
+            current = int(
+                guild_spontaneous_chances.get(
+                    interaction.guild.id, SPONTANEOUS_RESPONSE_CHANCE
+                )
+                * 100
+            )
+            message = f"Spontaneous chatter chance is {current}%"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(message, ephemeral=True)
+            else:
+                await interaction.followup.send(message, ephemeral=True)
             return
 
         if chance < 0 or chance > 100:
@@ -773,7 +783,7 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "**Commands:**\n"
             "• `/hollow-bot progress <text>` - Record your progress\n"
             "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
-            "• `/hollow-bot rando-talk <0-100>` - Set my random chatter chance\n"
+            "• `/hollow-bot rando-talk [0-100]` - View or set my random chatter chance\n"
             "• `/hollow-bot custom-context set <text>` - Set a custom prompt for this server\n"
             "• `/hollow-bot custom-context show` - Show the current custom prompt\n"
             "• `/hollow-bot custom-context clear` - Clear the custom prompt\n"

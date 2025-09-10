@@ -93,7 +93,7 @@ The bot uses environment variables for configuration:
 
 - `/hollow-bot progress <text>`: Record your latest Hallownest achievement
 - `/hollow-bot get_progress [user]`: Check the latest echo from a gamer's journey
-- `/hollow-bot rando-talk <0-100>`: Set chance the bot replies to random messages
+- `/hollow-bot rando-talk [0-100]`: View or set chance the bot replies to random messages
 - `/hollow-bot set_reminder_channel`: Set the chronicle channel for daily echoes
 - `/hollow-bot schedule_daily_reminder <time>`: Schedule when the chronicle echoes daily (UTC)
 
