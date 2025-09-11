@@ -936,7 +936,7 @@ def add_memory(guild_id: int, text: str) -> int:
 
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres or _db_manager._use_mysql:
+            if _db_manager._use_postgres:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO memories (guild_id, memory_text) VALUES (%s, %s) RETURNING id",
@@ -945,6 +945,14 @@ def add_memory(guild_id: int, text: str) -> int:
                     mem_id = cur.fetchone()["id"]
                     conn.commit()
                     return int(mem_id)
+            elif _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO memories (guild_id, memory_text) VALUES (%s, %s)",
+                        (str(guild_id), text.strip()),
+                    )
+                    conn.commit()
+                    return int(cur.lastrowid)
             else:
                 cur = conn.execute(
                     "INSERT INTO memories (guild_id, memory_text) VALUES (?, ?)",
@@ -1236,7 +1244,7 @@ def add_achievement(guild_id: int, user_id: int, achievement_type: str, achievem
     
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres or _db_manager._use_mysql:
+            if _db_manager._use_postgres:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO achievements (guild_id, user_id, achievement_type, achievement_name, progress_text, ts) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -1245,6 +1253,14 @@ def add_achievement(guild_id: int, user_id: int, achievement_type: str, achievem
                     achievement_id = cur.fetchone()["id"]
                     conn.commit()
                     return int(achievement_id)
+            elif _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO achievements (guild_id, user_id, achievement_type, achievement_name, progress_text, ts) VALUES (%s, %s, %s, %s, %s, %s)",
+                        (str(guild_id), str(user_id), achievement_type, achievement_name, progress_text.strip(), ts),
+                    )
+                    conn.commit()
+                    return int(cur.lastrowid)
             else:
                 cur = conn.execute(
                     "INSERT INTO achievements (guild_id, user_id, achievement_type, achievement_name, progress_text, ts) VALUES (?, ?, ?, ?, ?, ?)",
