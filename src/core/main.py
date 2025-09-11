@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.11"
+BOT_VERSION = "2.0"
 
 import asyncio
 import os
@@ -465,9 +465,9 @@ hollow_group = app_commands.Group(
 
 
 @hollow_group.command(
-    name="progress", description="Record your latest Hallownest achievement"
+    name="record", description="Record your latest Hallownest achievement"
 )
-async def slash_progress(interaction: discord.Interaction, text: str) -> None:
+async def slash_record(interaction: discord.Interaction, text: str) -> None:
     """Handle slash command for progress updates."""
     try:
         if not interaction.guild:
@@ -560,107 +560,20 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
 
 
 @hollow_group.command(
-    name="get_progress", description="Check the latest save data from a gamer's journey"
-)
-async def slash_get_progress(
-    interaction: discord.Interaction, user: Optional[discord.Member] = None
-) -> None:
-    try:
-        if not interaction.guild:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
-                    ephemeral=True,
-                )
-            return
-
-        target = user or interaction.user
-        log.info(
-            f"Getting progress for user {target.id} in guild {interaction.guild.id}"
-        )
-        
-        # Get the latest save data for this player
-        progress_history = database.get_player_progress_history(interaction.guild.id, target.id, limit=1)
-        
-        if not progress_history:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
-                )
-            else:
-                await interaction.followup.send(
-                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
-                )
-            return
-
-        # Get the most recent save data
-        latest_save = progress_history[0]
-        
-        # Calculate age
-        age_sec = int(time.time()) - latest_save['ts']
-        days = age_sec // 86400
-        hours = age_sec // 3600
-        age_str = f"{days}d" if days else f"{hours}h"
-        
-        # Format the save data summary
-        completion = latest_save['completion_percent']
-        playtime = latest_save['playtime_hours']
-        geo = latest_save['geo']
-        health = latest_save['health']
-        max_health = latest_save['max_health']
-        deaths = latest_save['deaths']
-        scene = latest_save['scene']
-        zone = latest_save['zone']
-        nail_upgrades = latest_save['nail_upgrades']
-        soul_vessels = latest_save['soul_vessels']
-        mask_shards = latest_save['mask_shards']
-        charms_owned = latest_save['charms_owned']
-        bosses_defeated = latest_save['bosses_defeated']
-        
-        # Build the response message
-        message = f"📜 **Latest Save Data for {target.display_name}** ({age_str} ago)\n\n"
-        message += f"🎮 **Progress**: {completion}% complete\n"
-        message += f"⏱️ **Playtime**: {playtime:.2f} hours\n"
-        message += f"💰 **Geo**: {geo:,}\n"
-        message += f"❤️ **Health**: {health}/{max_health} hearts\n"
-        message += f"💀 **Deaths**: {deaths}\n"
-        message += f"🗡️ **Nail**: +{nail_upgrades} upgrades\n"
-        message += f"💙 **Soul**: {soul_vessels} vessels\n"
-        message += f"🎭 **Charms**: {charms_owned} owned\n"
-        message += f"👹 **Bosses**: {bosses_defeated} defeated\n"
-        message += f"📍 **Location**: {scene} ({zone})"
-        
-        if not interaction.response.is_done():
-            await interaction.response.send_message(message)
-        else:
-            await interaction.followup.send(message)
-            
-    except Exception as e:
-        log.error(f"Error in slash_get_progress: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection got to my save data system. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection got to my save data system. Try again later, gamer!",
-                ephemeral=True,
-            )
-
-
-@hollow_group.command(
-    name="save_history", description="View save file history for a player"
+    name="progress", description="Check save data and progress history"
 )
 @app_commands.describe(
-    user="User to check save history for (defaults to yourself)",
-    limit="Number of recent saves to show (default: 5, max: 20)"
+    user="User to check progress for (defaults to yourself)",
+    limit="Number of recent saves to show (default: 1, max: 20)",
+    history="Show full history instead of just latest save"
 )
-async def slash_save_history(
+async def slash_progress_check(
     interaction: discord.Interaction, 
     user: Optional[discord.Member] = None,
-    limit: Optional[int] = 5
+    limit: Optional[int] = 1,
+    history: Optional[bool] = False
 ) -> None:
+    """Unified progress command that can show latest save or history."""
     try:
         if not interaction.guild:
             if not interaction.response.is_done():
@@ -672,7 +585,7 @@ async def slash_save_history(
 
         # Validate limit
         if limit is None:
-            limit = 5
+            limit = 1
         elif limit < 1 or limit > 20:
             if not interaction.response.is_done():
                 await interaction.response.send_message(
@@ -688,10 +601,10 @@ async def slash_save_history(
 
         target = user or interaction.user
         log.info(
-            f"Getting save history for user {target.id} in guild {interaction.guild.id}, limit {limit}"
+            f"Getting progress for user {target.id} in guild {interaction.guild.id}, limit {limit}, history {history}"
         )
         
-        # Get the save history for this player
+        # Get the save data for this player
         progress_history = database.get_player_progress_history(interaction.guild.id, target.id, limit=limit)
         
         if not progress_history:
@@ -705,24 +618,62 @@ async def slash_save_history(
                 )
             return
 
-        # Build the history message
-        message = f"📜 **Save History for {target.display_name}** ({len(progress_history)} recent saves)\n\n"
-        
-        for i, save in enumerate(progress_history, 1):
+        # If showing just latest save (limit=1 and not history mode)
+        if limit == 1 and not history:
+            latest_save = progress_history[0]
+            
             # Calculate age
-            age_sec = int(time.time()) - save['ts']
+            age_sec = int(time.time()) - latest_save['ts']
             days = age_sec // 86400
             hours = age_sec // 3600
             age_str = f"{days}d" if days else f"{hours}h"
             
-            message += f"**#{i}** ({age_str} ago)\n"
-            message += f"🎮 {save['completion_percent']}% complete | ⏱️ {save['playtime_hours']:.1f}h | 💰 {save['geo']:,} geo\n"
-            message += f"❤️ {save['health']}/{save['max_health']} hearts | 💀 {save['deaths']} deaths | 👹 {save['bosses_defeated']} bosses\n"
-            message += f"📍 {save['scene']} ({save['zone']})\n\n"
-        
-        # Truncate if too long
-        if len(message) > 2000:
-            message = message[:1900] + "\n\n... (message truncated)"
+            # Format the save data summary
+            completion = latest_save['completion_percent']
+            playtime = latest_save['playtime_hours']
+            geo = latest_save['geo']
+            health = latest_save['health']
+            max_health = latest_save['max_health']
+            deaths = latest_save['deaths']
+            scene = latest_save['scene']
+            zone = latest_save['zone']
+            nail_upgrades = latest_save['nail_upgrades']
+            soul_vessels = latest_save['soul_vessels']
+            mask_shards = latest_save['mask_shards']
+            charms_owned = latest_save['charms_owned']
+            bosses_defeated = latest_save['bosses_defeated']
+            
+            # Build the response message
+            message = f"📜 **Latest Save Data for {target.display_name}** ({age_str} ago)\n\n"
+            message += f"🎮 **Progress**: {completion}% complete\n"
+            message += f"⏱️ **Playtime**: {playtime:.2f} hours\n"
+            message += f"💰 **Geo**: {geo:,}\n"
+            message += f"❤️ **Health**: {health}/{max_health} hearts\n"
+            message += f"💀 **Deaths**: {deaths}\n"
+            message += f"🗡️ **Nail**: +{nail_upgrades} upgrades\n"
+            message += f"💙 **Soul**: {soul_vessels} vessels\n"
+            message += f"🎭 **Charms**: {charms_owned} owned\n"
+            message += f"👹 **Bosses**: {bosses_defeated} defeated\n"
+            message += f"📍 **Location**: {scene} ({zone})"
+        else:
+            # Show history
+            message = f"📜 **Save History for {target.display_name}** ({len(progress_history)} recent saves)\n\n"
+            
+            for i, save in enumerate(progress_history, 1):
+                # Calculate age
+                age_sec = int(time.time()) - save['ts']
+                days = age_sec // 86400
+                hours = age_sec // 3600
+                age_str = f"{days}d" if days else f"{hours}h"
+                
+                message += f"**#{i}** ({age_str} ago)\n"
+                message += f"🎮 {save['completion_percent']}% complete | ⏱️ {save['playtime_hours']:.1f}h | 💰 {save['geo']:,} geo\n"
+                message += f"❤️ {save['health']}/{save['max_health']} hearts | 💀 {save['deaths']} deaths | 👹 {save['bosses_defeated']} bosses\n"
+                message += f"📍 {save['scene']} ({save['zone']})\n\n"
+            
+            # Truncate if too long
+            if len(message) > 2000:
+                message = message[:1900] + "\n\n... (message truncated)"
         
         if not interaction.response.is_done():
             await interaction.response.send_message(message)
@@ -730,199 +681,34 @@ async def slash_save_history(
             await interaction.followup.send(message)
             
     except Exception as e:
-        log.error(f"Error in slash_save_history: {e}")
+        log.error(f"Error in slash_progress_check: {e}")
         if not interaction.response.is_done():
             await interaction.response.send_message(
-                "The Infection got to my save history system. Try again later, gamer!",
+                "The Infection got to my progress system. Try again later, gamer!",
                 ephemeral=True,
             )
         else:
             await interaction.followup.send(
-                "The Infection got to my save history system. Try again later, gamer!",
+                "The Infection got to my progress system. Try again later, gamer!",
                 ephemeral=True,
             )
 
 
-@hollow_group.command(
-    name="rando-talk",
-    description="View or set my random chatter chance (0-100%)",
-)
+@hollow_group.command(name="config", description="Configure bot settings")
 @app_commands.describe(
-    chance="Percentage chance (0-100). Leave blank to view current setting"
+    setting="Setting to configure: chatter, edginess, memory, or context",
+    action="Action for memory/context: add, list, delete, set, show, clear",
+    value="Value to set (number for chatter/edginess, text for memory/context)",
+    memory_id="Memory ID to delete (for memory delete action)"
 )
-async def slash_rando_talk(
-    interaction: discord.Interaction, chance: Optional[int] = None
-) -> None:
-    try:
-        if not interaction.guild:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
-                    ephemeral=True,
-                )
-            return
-
-        if not is_admin(interaction.user):
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Only guild admins can tweak my chatter settings, gamer!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    "Only guild admins can tweak my chatter settings, gamer!",
-                    ephemeral=True,
-                )
-            return
-
-        if chance is None:
-            current = int(
-                guild_spontaneous_chances.get(
-                    interaction.guild.id, SPONTANEOUS_RESPONSE_CHANCE
-                )
-                * 100
-            )
-            message = f"Spontaneous chatter chance is {current}%"
-            if not interaction.response.is_done():
-                await interaction.response.send_message(message, ephemeral=True)
-            else:
-                await interaction.followup.send(message, ephemeral=True)
-            return
-
-        if chance < 0 or chance > 100:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Chance must be between 0 and 100, gamer!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    "Chance must be between 0 and 100, gamer!",
-                    ephemeral=True,
-                )
-            return
-
-        guild_spontaneous_chances[interaction.guild.id] = chance / 100
-
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                f"Spontaneous chatter set to {chance}%",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                f"Spontaneous chatter set to {chance}%",
-                ephemeral=True,
-            )
-    except Exception as e:
-        log.error(f"Error in slash_rando_talk: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection messed with my settings. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection messed with my settings. Try again later, gamer!",
-                ephemeral=True,
-            )
-
-
-@hollow_group.command(
-    name="edginess",
-    description="View or set my edginess level (1-10)",
-)
-@app_commands.describe(
-    level="Edginess level (1-10). Leave blank to view current level"
-)
-async def slash_edginess(
-    interaction: discord.Interaction, level: Optional[int] = None
-) -> None:
-    try:
-        if not interaction.guild:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
-                    ephemeral=True,
-                )
-            return
-
-        if not is_admin(interaction.user):
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Only guild admins can tweak my edginess, gamer!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    "Only guild admins can tweak my edginess, gamer!",
-                    ephemeral=True,
-                )
-            return
-
-        if level is None:
-            current = database.get_edginess(interaction.guild.id)
-            message = f"Edginess level is {current}"
-            if not interaction.response.is_done():
-                await interaction.response.send_message(message, ephemeral=True)
-            else:
-                await interaction.followup.send(message, ephemeral=True)
-            return
-
-        if level < 1 or level > 10:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Level must be between 1 and 10, gamer!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    "Level must be between 1 and 10, gamer!",
-                    ephemeral=True,
-                )
-            return
-
-        database.set_edginess(interaction.guild.id, level)
-
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                f"Edginess set to {level}",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                f"Edginess set to {level}",
-                ephemeral=True,
-            )
-    except Exception as e:
-        log.error(f"Error in slash_edginess: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection messed with my settings. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection messed with my settings. Try again later, gamer!",
-                ephemeral=True,
-            )
-
-
-# Memory group converted to single command below
-
-
-@hollow_group.command(name="memory", description="Manage server memories")
-@app_commands.describe(
-    action="Action to perform: add, list, or delete",
-    text="Memory text (for add action)",
-    memory_id="Memory ID to delete (for delete action)"
-)
-async def memory_command(
-    interaction: discord.Interaction, 
-    action: str, 
-    text: Optional[str] = None, 
+async def config_command(
+    interaction: discord.Interaction,
+    setting: str,
+    action: Optional[str] = None,
+    value: Optional[str] = None,
     memory_id: Optional[int] = None
 ) -> None:
+    """Unified configuration command for all bot settings."""
     try:
         if not interaction.guild:
             if not interaction.response.is_done():
@@ -932,111 +718,118 @@ async def memory_command(
                 )
             return
 
-        action = action.lower()
+        setting = setting.lower()
         
-        if action == "add":
-            if not text:
-                message = "Gamer, you need to provide memory text! Usage: `/hollow-bot memory add <text>`"
-            else:
-                if not is_admin(interaction.user):
-                    message = "Only guild admins can tweak my memories, gamer!"
-                else:
-                    mem_id = database.add_memory(interaction.guild.id, text)
-                    message = f"Memory stored with ID {mem_id}."
-            
-        elif action == "list":
-            memories = database.get_memories_by_guild(interaction.guild.id)
-            if memories:
-                lines = [f"{mid}: {text}" for mid, text in memories]
-                message = "Stored memories:\n" + "\n".join(lines)
-            else:
-                message = "No memories stored."
-                
-        elif action == "delete":
-            if memory_id is None:
-                message = "Gamer, you need to provide a memory ID! Usage: `/hollow-bot memory delete <id>`"
-            else:
-                if not is_admin(interaction.user):
-                    message = "Only guild admins can tweak my memories, gamer!"
-                else:
-                    database.delete_memory(interaction.guild.id, memory_id)
-                    message = "Memory deleted."
-            
-        else:
-            message = "Invalid action! Use: `add`, `list`, or `delete`"
-
-        if not interaction.response.is_done():
-            await interaction.response.send_message(message, ephemeral=True)
-        else:
-            await interaction.followup.send(message, ephemeral=True)
-            
-    except Exception as e:
-        log.error(f"Error in memory_command: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection got to my memory system. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection got to my memory system. Try again later, gamer!",
-                ephemeral=True,
-            )
-
-
-@hollow_group.command(name="custom-context", description="Manage custom prompt context")
-@app_commands.describe(
-    action="Action to perform: set, show, or clear",
-    text="Custom context text (for set action)"
-)
-async def custom_context_command(
-    interaction: discord.Interaction, 
-    action: str, 
-    text: Optional[str] = None
-) -> None:
-    try:
-        if not interaction.guild:
+        # Check admin permissions for most settings
+        if setting in ["chatter", "edginess", "memory", "context"] and not is_admin(interaction.user):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    "Only guild admins can tweak my settings, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Only guild admins can tweak my settings, gamer!",
                     ephemeral=True,
                 )
             return
 
-        action = action.lower()
-        
-        if action == "set":
-            if not text:
-                message = "Gamer, you need to provide context text! Usage: `/hollow-bot custom-context set <text>`"
+        # Handle chatter setting
+        if setting == "chatter":
+            if value is None:
+                current = int(
+                    guild_spontaneous_chances.get(
+                        interaction.guild.id, SPONTANEOUS_RESPONSE_CHANCE
+                    ) * 100
+                )
+                message = f"Spontaneous chatter chance is {current}%"
             else:
-                if not is_admin(interaction.user):
-                    message = "Only guild admins can tweak my context, gamer!"
+                try:
+                    chance = int(value)
+                    if chance < 0 or chance > 100:
+                        message = "Chance must be between 0 and 100, gamer!"
+                    else:
+                        guild_spontaneous_chances[interaction.guild.id] = chance / 100
+                        message = f"Spontaneous chatter set to {chance}%"
+                except ValueError:
+                    message = "Chance must be a number between 0 and 100, gamer!"
+
+        # Handle edginess setting
+        elif setting == "edginess":
+            if value is None:
+                current = database.get_edginess(interaction.guild.id)
+                message = f"Edginess level is {current}"
+            else:
+                try:
+                    level = int(value)
+                    if level < 1 or level > 10:
+                        message = "Level must be between 1 and 10, gamer!"
+                    else:
+                        database.set_edginess(interaction.guild.id, level)
+                        message = f"Edginess set to {level}"
+                except ValueError:
+                    message = "Level must be a number between 1 and 10, gamer!"
+
+        # Handle memory setting
+        elif setting == "memory":
+            if not action:
+                message = "Memory actions: `add <text>`, `list`, `delete <id>`"
+            else:
+                action = action.lower()
+                if action == "add":
+                    if not value:
+                        message = "Gamer, you need to provide memory text! Usage: `/hollow-bot config memory add <text>`"
+                    else:
+                        mem_id = database.add_memory(interaction.guild.id, value)
+                        message = f"Memory stored with ID {mem_id}."
+                elif action == "list":
+                    memories = database.get_memories_by_guild(interaction.guild.id)
+                    if memories:
+                        lines = [f"{mid}: {text}" for mid, text in memories]
+                        message = "Stored memories:\n" + "\n".join(lines)
+                    else:
+                        message = "No memories stored."
+                elif action == "delete":
+                    if memory_id is None:
+                        message = "Gamer, you need to provide a memory ID! Usage: `/hollow-bot config memory delete <id>`"
+                    else:
+                        database.delete_memory(interaction.guild.id, memory_id)
+                        message = "Memory deleted."
                 else:
-                    validated = validate_custom_context(text)
+                    message = "Invalid memory action! Use: `add`, `list`, or `delete`"
+
+        # Handle context setting
+        elif setting == "context":
+            if not action:
+                message = "Context actions: `set <text>`, `show`, `clear`"
+            else:
+                action = action.lower()
+                if action == "set":
+                    if not value:
+                        message = "Gamer, you need to provide context text! Usage: `/hollow-bot config context set <text>`"
+                    else:
+                        validated = validate_custom_context(value)
+                        previous = database.get_custom_context(interaction.guild.id)
+                        database.set_custom_context(interaction.guild.id, validated)
+                        message = "Custom context updated!"
+                        if previous:
+                            message += f" Previous: {previous}"
+                        else:
+                            message += " Previous: none"
+                elif action == "show":
+                    context = database.get_custom_context(interaction.guild.id)
+                    message = f"Current custom context: {context}" if context else "No custom context set."
+                elif action == "clear":
                     previous = database.get_custom_context(interaction.guild.id)
-                    database.set_custom_context(interaction.guild.id, validated)
-                    message = "Custom context updated!"
+                    database.clear_custom_context(interaction.guild.id)
+                    message = "Custom context cleared."
                     if previous:
                         message += f" Previous: {previous}"
-                    else:
-                        message += " Previous: none"
-            
-        elif action == "show":
-            context = database.get_custom_context(interaction.guild.id)
-            message = f"Current custom context: {context}" if context else "No custom context set."
-                
-        elif action == "clear":
-            if not is_admin(interaction.user):
-                message = "Only guild admins can tweak my context, gamer!"
-            else:
-                previous = database.get_custom_context(interaction.guild.id)
-                database.clear_custom_context(interaction.guild.id)
-                message = "Custom context cleared."
-                if previous:
-                    message += f" Previous: {previous}"
-            
+                else:
+                    message = "Invalid context action! Use: `set`, `show`, or `clear`"
+
         else:
-            message = "Invalid action! Use: `set`, `show`, or `clear`"
+            message = "Invalid setting! Use: `chatter`, `edginess`, `memory`, or `context`"
 
         if not interaction.response.is_done():
             await interaction.response.send_message(message, ephemeral=True)
@@ -1044,21 +837,21 @@ async def custom_context_command(
             await interaction.followup.send(message, ephemeral=True)
             
     except ValidationError as e:
-        log.warning(f"Validation error in custom_context_command: {e}")
+        log.warning(f"Validation error in config_command: {e}")
         if not interaction.response.is_done():
             await interaction.response.send_message(str(e), ephemeral=True)
         else:
             await interaction.followup.send(str(e), ephemeral=True)
     except Exception as e:
-        log.error(f"Error in custom_context_command: {e}")
+        log.error(f"Error in config_command: {e}")
         if not interaction.response.is_done():
             await interaction.response.send_message(
-                "The Infection got to my context system. Try again later, gamer!",
+                "The Infection got to my config system. Try again later, gamer!",
                 ephemeral=True,
             )
         else:
             await interaction.followup.send(
-                "The Infection got to my context system. Try again later, gamer!",
+                "The Infection got to my config system. Try again later, gamer!",
                 ephemeral=True,
             )
 
@@ -1067,12 +860,23 @@ async def custom_context_command(
 
 
 @hollow_group.command(
-    name="set_reminder_channel",
-    description="Set the chronicle channel for daily echoes",
+    name="reminders",
+    description="Manage daily reminder settings"
 )
-async def slash_set_channel(interaction: discord.Interaction) -> None:
+@app_commands.describe(
+    action="Action to perform: setup, schedule, or status",
+    time="Time for daily reminders (HH:MM format, for schedule action)",
+    timezone="Timezone for reminders (default: UTC, for schedule action)"
+)
+async def reminders_command(
+    interaction: discord.Interaction,
+    action: str,
+    time: Optional[str] = None,
+    timezone: Optional[str] = "UTC"
+) -> None:
+    """Unified reminders command for setting up daily recaps."""
     try:
-        if not interaction.guild or not interaction.channel:
+        if not interaction.guild:
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
@@ -1083,36 +887,78 @@ async def slash_set_channel(interaction: discord.Interaction) -> None:
         if not is_admin(interaction.user):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Gamer, you need Manage Server permissions to set up the chronicle channel. The Infection won't let just anyone mess with the echoes.",
+                    "Gamer, you need Manage Server permissions to set up reminders. The Infection won't let just anyone mess with the echoes.",
                     ephemeral=True,
                 )
             else:
                 await interaction.followup.send(
-                    "Gamer, you need Manage Server permissions to set up the chronicle channel. The Infection won't let just anyone mess with the echoes.",
+                    "Gamer, you need Manage Server permissions to set up reminders. The Infection won't let just anyone mess with the echoes.",
                     ephemeral=True,
                 )
             return
 
-        database.set_recap_channel(interaction.guild.id, interaction.channel.id)
+        action = action.lower()
+
+        if action == "setup":
+            if not interaction.channel:
+                message = "Gamer, I need to know which channel to use! Run this command in the channel where you want daily reminders."
+            else:
+                database.set_recap_channel(interaction.guild.id, interaction.channel.id)
+                message = f"📜 Chronicle channel set to {interaction.channel.mention}. The echoes of Hallownest will be recorded here daily, gamer!"
+
+        elif action == "schedule":
+            if not time:
+                message = "Gamer, you need to provide a time! Usage: `/hollow-bot reminders schedule <time> [timezone]`"
+            else:
+                try:
+                    validated_time = validate_time_format(time)
+                    validated_timezone = validate_timezone(timezone)
+                    database.set_recap_time(interaction.guild.id, validated_time, validated_timezone)
+                    message = f"⏰ Chronicle scheduled for **{validated_time} {validated_timezone}**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
+                except ValidationError as e:
+                    message = f"Gamer, {e}. Even the Pale King had better time management than that!"
+
+        elif action == "status":
+            # Get current reminder settings
+            guild_config = database.get_guild_config(interaction.guild.id)
+            if guild_config:
+                channel_id, recap_time, timezone_str = guild_config
+                if channel_id and recap_time:
+                    try:
+                        channel = interaction.guild.get_channel(channel_id)
+                        channel_name = channel.mention if channel else f"<#{channel_id}>"
+                        message = f"📜 **Current Reminder Settings:**\n"
+                        message += f"• **Channel**: {channel_name}\n"
+                        message += f"• **Time**: {recap_time} {timezone_str}\n"
+                        message += f"• **Status**: ✅ Active"
+                    except Exception:
+                        message = f"📜 **Current Reminder Settings:**\n"
+                        message += f"• **Channel**: <#{channel_id}>\n"
+                        message += f"• **Time**: {recap_time} {timezone_str}\n"
+                        message += f"• **Status**: ⚠️ Channel may be deleted"
+                else:
+                    message = "📜 **Current Reminder Settings:**\n• **Status**: ❌ Not configured\n\nUse `/hollow-bot reminders setup` to set a channel and `/hollow-bot reminders schedule <time>` to set a time."
+            else:
+                message = "📜 **Current Reminder Settings:**\n• **Status**: ❌ Not configured\n\nUse `/hollow-bot reminders setup` to set a channel and `/hollow-bot reminders schedule <time>` to set a time."
+
+        else:
+            message = "Invalid action! Use: `setup`, `schedule`, or `status`"
 
         if not interaction.response.is_done():
-            await interaction.response.send_message(
-                f"📜 Chronicle channel set to {interaction.channel.mention}. The echoes of Hallownest will be recorded here daily, gamer!"
-            )
+            await interaction.response.send_message(message)
         else:
-            await interaction.followup.send(
-                f"📜 Chronicle channel set to {interaction.channel.mention}. The echoes of Hallownest will be recorded here daily, gamer!"
-            )
+            await interaction.followup.send(message)
+
     except Exception as e:
-        log.error(f"Error in slash_set_channel: {e}")
+        log.error(f"Error in reminders_command: {e}")
         if not interaction.response.is_done():
             await interaction.response.send_message(
-                "The Infection got to my channel setup system. Try again later, gamer!",
+                "The Infection got to my reminder system. Try again later, gamer!",
                 ephemeral=True,
             )
         else:
             await interaction.followup.send(
-                "The Infection got to my channel setup system. Try again later, gamer!",
+                "The Infection got to my reminder system. Try again later, gamer!",
                 ephemeral=True,
             )
 
@@ -1354,18 +1200,21 @@ async def slash_info(interaction: discord.Interaction) -> None:
         info_message = (
             f"**HollowBot v{BOT_VERSION}** 🎮\n\n"
             "I'm a gamer who's beaten Hollow Knight and helps track your Hallownest journey!\n\n"
-            "**Commands:**\n"
-            "• `/hollow-bot progress <text>` - Record your progress\n"
-            "• `/hollow-bot get_progress [user]` - Check someone's latest save data\n"
-            "• `/hollow-bot save_history [user] [limit]` - View save file history\n"
+            "**Core Commands:**\n"
+            "• `/hollow-bot record <text>` - Record your latest achievement\n"
+            "• `/hollow-bot progress [user] [limit] [history]` - Check save data and progress history\n"
             "• `/hollow-bot leaderboard` - See who's ahead in the journey\n"
-            "• `/hollow-bot rando-talk [0-100]` - View or set my random chatter chance\n"
-            "• `/hollow-bot edginess [1-10]` - View or set my edginess level\n"
-            "• `/hollow-bot custom-context <action> [text]` - Manage custom prompt context (set/show/clear)\n"
-            "• `/hollow-bot memory <action> [text/id]` - Manage server memories (add/list/delete)\n"
-            "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
-            "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
             "• `/hollow-bot info` - Show this info\n\n"
+            "**Configuration Commands:**\n"
+            "• `/hollow-bot config <setting> [value]` - Configure bot settings\n"
+            "  - `chatter <0-100>` - Set random chatter chance\n"
+            "  - `edginess <1-10>` - Set edginess level\n"
+            "  - `memory <action> [text/id]` - Manage server memories\n"
+            "  - `context <action> [text]` - Manage custom context\n"
+            "• `/hollow-bot reminders <action> [args]` - Manage daily reminders\n"
+            "  - `setup` - Set reminder channel\n"
+            "  - `schedule <time> [timezone]` - Schedule daily recaps\n"
+            "  - `status` - Check current settings\n\n"
             "**Save Files:** Upload .dat files to track detailed progress with stats!\n"
             "**Chat:** Just @ me to talk! I remember our conversations and give gamer advice.\n\n"
             "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
@@ -1389,75 +1238,6 @@ async def slash_info(interaction: discord.Interaction) -> None:
             )
 
 
-@hollow_group.command(
-    name="schedule_daily_reminder",
-    description="Schedule when the chronicle echoes daily",
-)
-async def slash_schedule(
-    interaction: discord.Interaction, time: str, timezone: str = "UTC"
-) -> None:
-    try:
-        if not interaction.guild:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
-                    ephemeral=True,
-                )
-            return
-
-        if not is_admin(interaction.user):
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Gamer, you need Manage Server permissions to schedule the chronicle. The Infection won't let just anyone mess with the echoes.",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    "Gamer, you need Manage Server permissions to schedule the chronicle. The Infection won't let just anyone mess with the echoes.",
-                    ephemeral=True,
-                )
-            return
-
-        try:
-            validated_time = validate_time_format(time)
-            validated_timezone = validate_timezone(timezone)
-        except ValidationError as e:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"Gamer, {e}. Even the Pale King had better time management than that!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    f"Gamer, {e}. Even the Pale King had better time management than that!",
-                    ephemeral=True,
-                )
-            return
-
-        database.set_recap_time(
-            interaction.guild.id, validated_time, validated_timezone
-        )
-
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                f"⏰ Chronicle scheduled for **{validated_time} {validated_timezone}**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
-            )
-        else:
-            await interaction.followup.send(
-                f"⏰ Chronicle scheduled for **{validated_time} {validated_timezone}**. The echoes of Hallownest will be chronicled daily at this time, gamer!"
-            )
-    except Exception as e:
-        log.error(f"Error in slash_schedule: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection got to my scheduling system. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection got to my scheduling system. Try again later, gamer!",
-                ephemeral=True,
-            )
 
 
 bot.tree.add_command(hollow_group)
