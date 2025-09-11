@@ -762,16 +762,16 @@ async def slash_progress_check(
             
             # Build the response message
             message = f"📜 **Latest Save Data for {target.display_name}** ({age_str} ago)\n\n"
-            message += f"🎮 **Progress**: {completion}% complete\n"
-            message += f"⏱️ **Playtime**: {playtime:.2f} hours\n"
-            message += f"💰 **Geo**: {geo:,}\n"
-            message += f"❤️ **Health**: {health}/{max_health} hearts\n"
-            message += f"💀 **Deaths**: {deaths}\n"
-            message += f"🗡️ **Nail**: +{nail_upgrades} upgrades\n"
-            message += f"💙 **Soul**: {soul_vessels} vessels\n"
-            message += f"🎭 **Charms**: {charms_owned} owned\n"
-            message += f"👹 **Bosses**: {bosses_defeated} defeated\n"
-            message += f"📍 **Location**: {scene} ({zone})"
+            message += f"🎮 **Progress**: {completion or 0}% complete\n"
+            message += f"⏱️ **Playtime**: {(playtime if playtime is not None else 0):.2f} hours\n"
+            message += f"💰 **Geo**: {(geo if geo is not None else 0):,}\n"
+            message += f"❤️ **Health**: {health or 0}/{max_health or 0} hearts\n"
+            message += f"💀 **Deaths**: {deaths or 0}\n"
+            message += f"🗡️ **Nail**: +{nail_upgrades or 0} upgrades\n"
+            message += f"💙 **Soul**: {soul_vessels or 0} vessels\n"
+            message += f"🎭 **Charms**: {charms_owned or 0} owned\n"
+            message += f"👹 **Bosses**: {bosses_defeated or 0} defeated\n"
+            message += f"📍 **Location**: {scene or 'Unknown'} ({zone or 'Unknown'})"
         else:
             # Show history
             message = f"📜 **Save History for {target.display_name}** ({len(progress_history)} recent saves)\n\n"
@@ -784,9 +784,9 @@ async def slash_progress_check(
                 age_str = f"{days}d" if days else f"{hours}h"
                 
                 message += f"**#{i}** ({age_str} ago)\n"
-                message += f"🎮 {save['completion_percent']}% complete | ⏱️ {save['playtime_hours']:.1f}h | 💰 {save['geo']:,} geo\n"
-                message += f"❤️ {save['health']}/{save['max_health']} hearts | 💀 {save['deaths']} deaths | 👹 {save['bosses_defeated']} bosses\n"
-                message += f"📍 {save['scene']} ({save['zone']})\n\n"
+                message += f"🎮 {save['completion_percent'] or 0}% complete | ⏱️ {(save['playtime_hours'] if save['playtime_hours'] is not None else 0):.1f}h | 💰 {(save['geo'] if save['geo'] is not None else 0):,} geo\n"
+                message += f"❤️ {save['health'] or 0}/{save['max_health'] or 0} hearts | 💀 {save['deaths'] or 0} deaths | 👹 {save['bosses_defeated'] or 0} bosses\n"
+                message += f"📍 {save['scene'] or 'Unknown'} ({save['zone'] or 'Unknown'})\n\n"
             
             # Truncate if too long
             if len(message) > 2000:
