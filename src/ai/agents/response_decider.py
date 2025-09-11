@@ -12,7 +12,8 @@ class GeminiLLM(LLM):
 
     def _call(self, prompt: str, **kwargs: Optional[dict]) -> str:  # type: ignore[override]
         try:
-            return generate_reply(prompt)
+            from ai.gemini_integration import _gemini_client
+            return _gemini_client.generate_content(prompt)
         except Exception as e:  # pragma: no cover - network/LLM errors
             log.error(f"GeminiLLM error: {e}")
             return "no"
@@ -51,12 +52,17 @@ Your job is to determine if HollowBot should respond to a message.
 </message>
 
 <instructions>
-Should HollowBot respond to this message? Consider:
-- Is this a direct question or mention of HollowBot?
-- Is this about Hollow Knight progress or gaming?
-- Would a response add value to the conversation?
-- Has HollowBot already responded recently in this conversation?
-- Is this just casual chat that doesn't need a response?
+Should HollowBot respond to this message? 
+
+ALWAYS respond if:
+- The message directly mentions HollowBot or @Hollow-Bot
+- The message asks "are you there", "is hollow bot in here", or similar direct questions to the bot
+- The message is about Hollow Knight progress, achievements, or gaming
+
+NEVER respond if:
+- The message is just casual chat with no mention of HollowBot or Hollow Knight
+- HollowBot has already responded 2+ times in the recent conversation
+- The message is just random chatter with no clear question or mention
 
 Answer only "yes" or "no".
 </instructions>"""

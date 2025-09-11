@@ -111,8 +111,16 @@ def _build_focused_context(guild: discord.Guild, current_message: str) -> str:
     """Build more focused context based on the current message content."""
     try:
         # Check if message mentions Hollow Knight specific terms
-        hk_terms = ['boss', 'charm', 'geo', 'soul', 'nail', 'mask', 'vessel', 'knight', 'hollow', 'radiance', 'infection', 'dream', 'void']
+        hk_terms = ['boss', 'charm', 'geo', 'soul', 'nail', 'mask', 'vessel', 'knight', 'hollow', 'radiance', 'infection', 'dream', 'void', 'progress', 'beat', 'defeated', 'upgraded', 'found', 'got']
         message_lower = current_message.lower()
+        
+        # Check if this is a casual question about the bot itself
+        casual_bot_questions = ['are you there', 'is hollow bot', 'are you here', 'hello', 'hi', 'what', 'how are you']
+        is_casual_question = any(phrase in message_lower for phrase in casual_bot_questions)
+        
+        # If it's a casual question about the bot, don't include progress context
+        if is_casual_question and not any(term in message_lower for term in hk_terms):
+            return "No relevant Hollow Knight context needed for casual conversation."
         
         # If it's about Hollow Knight, include more relevant context
         if any(term in message_lower for term in hk_terms):
@@ -141,7 +149,7 @@ def _increment_bot_response_count(guild_id: int) -> None:
     recent_bot_responses[guild_id] += 1
 
 
-def _build_system_message(custom_context: str, edginess: int) -> str:
+def _build_system_message(custom_context: str, edginess: int, is_casual_question: bool = False) -> str:
     """Build a proper system message defining the bot's role and behavior."""
     system_parts = [
         "You are HollowBot, a seasoned Hollow Knight gamer and Discord bot.",
@@ -151,6 +159,9 @@ def _build_system_message(custom_context: str, edginess: int) -> str:
         "You never break character - blame technical issues on 'the Infection'.",
         f"Your edginess level is {edginess}/10 (1=very polite, 10=very snarky)."
     ]
+    
+    if is_casual_question:
+        system_parts.append("For casual questions about your presence or status, respond naturally without mentioning progress percentages or achievements unless specifically asked.")
     
     if custom_context:
         system_parts.append(f"Additional context for this server: {custom_context}")
@@ -307,8 +318,12 @@ async def on_message(message: discord.Message) -> None:
             previous_messages, current_message, bot_responses_count = await _get_recent_messages(message)
             focused_context = _build_focused_context(message.guild, current_message)
             
+            # Check if this is a casual question about the bot
+            casual_bot_questions = ['are you there', 'is hollow bot', 'are you here', 'hello', 'hi', 'what', 'how are you']
+            is_casual_question = any(phrase in current_message.lower() for phrase in casual_bot_questions)
+            
             # Build properly structured prompt with delimiters
-            system_message = _build_system_message(custom_context, edginess)
+            system_message = _build_system_message(custom_context, edginess, is_casual_question)
             
             prompt = f"""<system>
 {system_message}
@@ -352,8 +367,12 @@ Respond to the message above as HollowBot. Keep your response to 1-2 sentences m
                 ):
                     focused_context = _build_focused_context(message.guild, current_message)
                     
+                    # Check if this is a casual question about the bot
+                    casual_bot_questions = ['are you there', 'is hollow bot', 'are you here', 'hello', 'hi', 'what', 'how are you']
+                    is_casual_question = any(phrase in current_message.lower() for phrase in casual_bot_questions)
+                    
                     # Build properly structured prompt with delimiters
-                    system_message = _build_system_message(custom_context, edginess)
+                    system_message = _build_system_message(custom_context, edginess, is_casual_question)
                     
                     prompt = f"""<system>
 {system_message}
