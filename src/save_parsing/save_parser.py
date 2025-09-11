@@ -260,7 +260,7 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
 def generate_save_analysis(summary: Dict[str, Any]) -> str:
     """Generate AI analysis of the save data."""
     try:
-        from gemini_integration import generate_reply
+        from ..ai.gemini_integration import generate_reply
         
         prompt = f"""You are HollowBot, a seasoned Hollow Knight player who's 112% the game. 
 Analyze this save data and give a short, personalized response (1-2 sentences max):
