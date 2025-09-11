@@ -3,11 +3,20 @@
 import pytest
 import json
 import os
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src.save_parsing.save_parser import parse_hk_save, format_save_summary, generate_save_analysis, SaveDataError
-from src.save_parsing.hollow_knight_decrypt import decrypt_hollow_knight_save, HollowKnightDecryptor
+os.environ.setdefault("DISCORD_TOKEN", "dummy")
+os.environ.setdefault("GEMINI_API_KEY", "dummy")
+
+from save_parsing.save_parser import (
+    parse_hk_save,
+    format_save_summary,
+    generate_save_analysis,
+    SaveDataError,
+)
+from save_parsing.hollow_knight_decrypt import (
+    decrypt_hollow_knight_save,
+    HollowKnightDecryptor,
+)
 
 
 class TestHollowKnightDecryption:
