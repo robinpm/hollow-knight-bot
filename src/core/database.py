@@ -1287,3 +1287,73 @@ def get_user_stats(guild_id: int) -> List[Tuple[str, int, int, int, int]]:
     except Exception as e:
         log.error(f"Failed to get user stats: {e}")
         raise DatabaseError(f"Failed to retrieve user stats: {e}") from e
+
+
+def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, int, int, int, int, int]]:
+    """Get game stats leaderboard. Returns (user_id, completion_percent, playtime_hours, bosses_defeated, geo, deaths, nail_upgrades, charms_owned)."""
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT 
+                            user_id,
+                            MAX(completion_percent) as completion_percent,
+                            MAX(playtime_hours) as playtime_hours,
+                            MAX(bosses_defeated) as bosses_defeated,
+                            MAX(geo) as geo,
+                            MAX(deaths) as deaths,
+                            MAX(nail_upgrades) as nail_upgrades,
+                            MAX(charms_owned) as charms_owned
+                        FROM progress 
+                        WHERE guild_id = %s 
+                        AND completion_percent IS NOT NULL
+                        AND playtime_hours IS NOT NULL
+                        GROUP BY user_id 
+                        ORDER BY 
+                            MAX(completion_percent) DESC,
+                            MAX(bosses_defeated) DESC,
+                            MAX(playtime_hours) DESC,
+                            MAX(geo) DESC
+                    """, (str(guild_id),))
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute("""
+                    SELECT 
+                        user_id,
+                        MAX(completion_percent) as completion_percent,
+                        MAX(playtime_hours) as playtime_hours,
+                        MAX(bosses_defeated) as bosses_defeated,
+                        MAX(geo) as geo,
+                        MAX(deaths) as deaths,
+                        MAX(nail_upgrades) as nail_upgrades,
+                        MAX(charms_owned) as charms_owned
+                    FROM progress 
+                    WHERE guild_id = ? 
+                    AND completion_percent IS NOT NULL
+                    AND playtime_hours IS NOT NULL
+                    GROUP BY user_id 
+                    ORDER BY 
+                        MAX(completion_percent) DESC,
+                        MAX(bosses_defeated) DESC,
+                        MAX(playtime_hours) DESC,
+                        MAX(geo) DESC
+                """, (str(guild_id),))
+                rows = cur.fetchall()
+            
+            return [
+                (
+                    row["user_id"], 
+                    float(row["completion_percent"] or 0),
+                    float(row["playtime_hours"] or 0),
+                    int(row["bosses_defeated"] or 0),
+                    int(row["geo"] or 0),
+                    int(row["deaths"] or 0),
+                    int(row["nail_upgrades"] or 0),
+                    int(row["charms_owned"] or 0)
+                ) 
+                for row in rows
+            ]
+    except Exception as e:
+        log.error(f"Failed to get game stats leaderboard: {e}")
+        raise DatabaseError(f"Failed to retrieve game stats leaderboard: {e}") from e

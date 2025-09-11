@@ -1251,7 +1251,7 @@ def parse_hollow_knight_achievement(progress_text: str) -> Optional[Tuple[str, s
 
 @hollow_group.command(name="leaderboard", description="See who's ahead in the Hallownest journey")
 async def slash_leaderboard(interaction: discord.Interaction) -> None:
-    """Show the leaderboard of most accomplished gamers based on save data."""
+    """Show the leaderboard of most accomplished gamers based on game stats."""
     try:
         if not interaction.guild:
             if not interaction.response.is_done():
@@ -1261,10 +1261,10 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
                 )
             return
 
-        # Get user stats from database
-        user_stats = database.get_user_stats(interaction.guild.id)
+        # Get game stats from database
+        game_stats = database.get_game_stats_leaderboard(interaction.guild.id)
         
-        if not user_stats:
+        if not game_stats:
             message = "No gamers have uploaded save data yet! Be the first to upload a .dat file to start tracking your Hallownest journey!"
             if not interaction.response.is_done():
                 await interaction.response.send_message(message)
@@ -1273,9 +1273,9 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
             return
 
         # Build leaderboard message
-        message = "🏆 **Hallownest Progress Leaderboard** 🏆\n\n"
+        message = "🏆 **Hallownest Game Stats Leaderboard** 🏆\n\n"
         
-        for i, (user_id, total_updates, days_active, recent_updates, first_update_ts) in enumerate(user_stats[:10]):
+        for i, (user_id, completion_percent, playtime_hours, bosses_defeated, geo, deaths, nail_upgrades, charms_owned) in enumerate(game_stats[:10]):
             try:
                 user = interaction.guild.get_member(int(user_id))
                 if user:
@@ -1295,16 +1295,26 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
             else:
                 rank_emoji = f"{i+1}."
             
-            # Calculate days since first upload
-            days_since_first = (int(time.time()) - first_update_ts) // 86400
+            # Determine game stage based on completion
+            if completion_percent >= 100:
+                stage = "🏆 Complete"
+            elif completion_percent >= 80:
+                stage = "🔥 End Game"
+            elif completion_percent >= 50:
+                stage = "⚔️ Late Game"
+            elif completion_percent >= 20:
+                stage = "🗡️ Mid Game"
+            else:
+                stage = "🌱 Early Game"
             
-            message += f"{rank_emoji} **{display_name}**\n"
-            message += f"   📊 Saves: {total_updates} | 📅 Active: {days_active} days | 🔥 Recent: {recent_updates} (7d) | ⏰ Playing: {days_since_first} days\n\n"
+            message += f"{rank_emoji} **{display_name}** - {stage}\n"
+            message += f"   🎮 {completion_percent}% complete | ⏱️ {playtime_hours:.1f}h | 👹 {bosses_defeated} bosses\n"
+            message += f"   💰 {geo:,} geo | 💀 {deaths} deaths | 🗡️ +{nail_upgrades} nail | 🎭 {charms_owned} charms\n\n"
         
-        if len(user_stats) > 10:
-            message += f"... and {len(user_stats) - 10} more gamers on their journey!\n\n"
+        if len(game_stats) > 10:
+            message += f"... and {len(game_stats) - 10} more gamers on their journey!\n\n"
         
-        message += "*Leaderboard based on save file uploads and activity. Upload more .dat files to climb the ranks!* 🗡️"
+        message += "*Leaderboard based on actual game progress: completion %, playtime, bosses defeated, and achievements!* 🗡️"
 
         if not interaction.response.is_done():
             await interaction.response.send_message(message)
