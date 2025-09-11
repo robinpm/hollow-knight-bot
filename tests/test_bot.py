@@ -4,6 +4,9 @@
 import os
 import sys
 
+# Add the src directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
 def test_imports():
     """Test that all modules can be imported."""
     print("Testing imports...")
