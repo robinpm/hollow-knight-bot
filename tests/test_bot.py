@@ -4,11 +4,6 @@
 import os
 import sys
 
-# Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, project_root)
-sys.path.insert(0, os.path.join(project_root, 'src'))
-
 def test_imports():
     """Test that all modules can be imported."""
     print("Testing imports...")
@@ -17,35 +12,35 @@ def test_imports():
     os.environ["GEMINI_API_KEY"] = "dummy"
 
     try:
-        from src.core import config
+        from core import config
         print("✅ config imported")
     except Exception as e:
         print(f"❌ config import failed: {e}")
         return False
     
     try:
-        from src.core import logger
+        from core import logger
         print("✅ logger imported")
     except Exception as e:
         print(f"❌ logger import failed: {e}")
         return False
     
     try:
-        from src.core import validation
+        from core import validation
         print("✅ validation imported")
     except Exception as e:
         print(f"❌ validation import failed: {e}")
         return False
     
     try:
-        from src.core import database
+        from core import database
         print("✅ database imported")
     except Exception as e:
         print(f"❌ database import failed: {e}")
         return False
     
     try:
-        from src.ai import gemini_integration
+        from ai import gemini_integration
         print("✅ gemini_integration imported")
     except Exception as e:
         print(f"❌ gemini_integration import failed: {e}")
@@ -70,7 +65,7 @@ def test_config():
     os.environ["GEMINI_API_KEY"] = "dummy-key-for-testing"
     
     try:
-        from src.core import config
+        from core import config
         print("✅ Configuration loaded successfully")
         print(f"   Discord token: {'*' * 10}")
         print(f"   Gemini API key: {'dummy' if config.config.google_api_key == 'dummy-key-for-testing' else 'real'}")
@@ -84,7 +79,7 @@ def test_validation():
     print("\nTesting validation...")
     
     try:
-        from src.core.validation import (
+        from core.validation import (
             validate_progress_text,
             validate_time_format,
             validate_custom_context,
@@ -132,7 +127,7 @@ def test_memory_db():
     """Test memory database operations."""
     print("\nTesting memory DB...")
     try:
-        from src.core import database
+        from core import database
 
         mem_id = database.add_memory(1, "Test memory")
         memories = database.get_memories_by_guild(1)
@@ -148,7 +143,7 @@ def test_leaderboard_db():
     """Test leaderboard database operations."""
     print("\nTesting leaderboard DB...")
     try:
-        from src.core import database
+        from core import database
         import time
 
         # Add some test progress data
@@ -182,7 +177,7 @@ def test_command_structure():
     """Test that the new command structure is properly defined."""
     print("\nTesting command structure...")
     try:
-        from src.core import main
+        from core import main
         
         # Check that BOT_VERSION is updated
         assert main.BOT_VERSION == "1.9", f"Expected BOT_VERSION 1.9, got {main.BOT_VERSION}"
