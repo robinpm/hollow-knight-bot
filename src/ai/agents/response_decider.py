@@ -32,13 +32,35 @@ def should_respond(
     previous_messages: str, current_message: str, guild_context: str, author: str, custom_context: str
 ) -> bool:
     """Use an LLM to decide if the bot should reply."""
-    preamble = f"{custom_context}\n" if custom_context else ""
-    prompt = (
-        f"{preamble}Previous conversation:\n{previous_messages}\n\n"
-        f"CURRENT MESSAGE (the one to potentially respond to):\n{current_message}\n\n"
-        f"Recent updates from everyone:\n{guild_context}\n"
-        f"Should HollowBot reply to the CURRENT MESSAGE? Answer yes or no."
-    )
+    prompt = f"""<system>
+You are a decision-making system for HollowBot, a Hollow Knight Discord bot.
+Your job is to determine if HollowBot should respond to a message.
+</system>
+
+<context>
+{f"Server context: {custom_context}" if custom_context else "No special server context."}
+{f"Recent activity: {guild_context}" if guild_context and guild_context != "No updates yet today." else "No recent Hollow Knight activity."}
+</context>
+
+<conversation>
+{previous_messages if previous_messages != "No previous messages." else "No previous conversation."}
+</conversation>
+
+<message>
+{current_message}
+</message>
+
+<instructions>
+Should HollowBot respond to this message? Consider:
+- Is this a direct question or mention of HollowBot?
+- Is this about Hollow Knight progress or gaming?
+- Would a response add value to the conversation?
+- Has HollowBot already responded recently in this conversation?
+- Is this just casual chat that doesn't need a response?
+
+Answer only "yes" or "no".
+</instructions>"""
+    
     try:
         decision = _llm.invoke(prompt).strip().lower()
         return decision.startswith("y")

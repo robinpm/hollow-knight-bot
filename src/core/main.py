@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "2.0"
+BOT_VERSION = "2.2"
 
 import asyncio
 import os
@@ -61,6 +61,9 @@ last_sent: Dict[str, datetime.date] = {}
 SPONTANEOUS_RESPONSE_CHANCE = config.spontaneous_response_chance
 guild_spontaneous_chances: Dict[int, float] = {}
 
+# Track recent bot responses to avoid over-responding
+recent_bot_responses: Dict[int, int] = {}  # guild_id -> count of recent bot responses
+
 
 def is_admin(member: discord.Member) -> bool:
     perms = member.guild_permissions
@@ -95,21 +98,84 @@ def _build_memories_context(guild: discord.Guild) -> str:
     try:
         validate_guild_id(guild.id)
         memories = database.get_memories_by_guild(guild.id)
-        lines = [m for _, m in memories]
+        # Only include recent memories (last 5) to avoid overwhelming context
+        recent_memories = memories[-5:] if len(memories) > 5 else memories
+        lines = [m for _, m in recent_memories]
         return "\n".join(lines) if lines else "No memories yet."
     except (ValidationError, database.DatabaseError) as e:
         log.error(f"Failed to build memories context: {e}")
         return "The Chronicler remembers nothing."
 
 
-async def _get_recent_messages(message: discord.Message, limit: int = 10) -> tuple[str, str]:
+def _build_focused_context(guild: discord.Guild, current_message: str) -> str:
+    """Build more focused context based on the current message content."""
+    try:
+        # Check if message mentions Hollow Knight specific terms
+        hk_terms = ['boss', 'charm', 'geo', 'soul', 'nail', 'mask', 'vessel', 'knight', 'hollow', 'radiance', 'infection', 'dream', 'void']
+        message_lower = current_message.lower()
+        
+        # If it's about Hollow Knight, include more relevant context
+        if any(term in message_lower for term in hk_terms):
+            updates = _build_updates_context(guild)
+            memories = _build_memories_context(guild)
+            
+            context_parts = []
+            if updates and updates != "No updates yet today.":
+                context_parts.append(f"Recent progress updates:\n{updates}")
+            if memories and memories != "No memories yet.":
+                context_parts.append(f"Server memories:\n{memories}")
+            
+            return "\n\n".join(context_parts) if context_parts else "No relevant Hollow Knight context."
+        else:
+            # For non-HK topics, keep context minimal
+            return "No recent Hollow Knight updates."
+    except Exception as e:
+        log.error(f"Failed to build focused context: {e}")
+        return "Context unavailable."
+
+
+def _increment_bot_response_count(guild_id: int) -> None:
+    """Increment the count of recent bot responses for this guild."""
+    if guild_id not in recent_bot_responses:
+        recent_bot_responses[guild_id] = 0
+    recent_bot_responses[guild_id] += 1
+
+
+def _build_system_message(custom_context: str, edginess: int) -> str:
+    """Build a proper system message defining the bot's role and behavior."""
+    system_parts = [
+        "You are HollowBot, a seasoned Hollow Knight gamer and Discord bot.",
+        "You're knowledgeable about Hollow Knight lore, mechanics, and the gaming experience.",
+        "You speak like a gamer friend who's already 112% the game - supportive but playfully snarky.",
+        "You reference bosses, areas, items, and the pain of losing geo naturally in conversation.",
+        "You never break character - blame technical issues on 'the Infection'.",
+        f"Your edginess level is {edginess}/10 (1=very polite, 10=very snarky)."
+    ]
+    
+    if custom_context:
+        system_parts.append(f"Additional context for this server: {custom_context}")
+    
+    return "\n".join(system_parts)
+
+
+async def _get_recent_messages(message: discord.Message, limit: int = 10) -> tuple[str, str, int]:
     """Return previous messages and current message separately for clear context."""
     previous_lines: List[str] = []
+    bot_responses_count = 0
+    
     try:
         async for msg in message.channel.history(limit=limit, before=message):
-            if msg.author.bot or not msg.content:
+            if not msg.content:
                 continue
-            previous_lines.append(f"{msg.author.display_name}: {msg.content.strip()}")
+                
+            # Count bot responses to avoid over-responding
+            if msg.author.bot:
+                bot_responses_count += 1
+                # Include bot responses but mark them clearly
+                previous_lines.append(f"[BOT] {msg.content.strip()}")
+            else:
+                previous_lines.append(f"{msg.author.display_name}: {msg.content.strip()}")
+                
     except Exception as e:
         log.warning(f"Failed to fetch recent messages: {e}")
 
@@ -117,14 +183,18 @@ async def _get_recent_messages(message: discord.Message, limit: int = 10) -> tup
     previous_messages = "\n".join(previous_lines) if previous_lines else "No previous messages."
     current_message = f"{message.author.display_name}: {message.content.strip()}"
     
-    return previous_messages, current_message
+    return previous_messages, current_message, bot_responses_count
 
 
 def _should_respond(
-    previous_messages: str, current_message: str, guild_context: str, author: str, custom_context: str
+    previous_messages: str, current_message: str, guild_context: str, author: str, custom_context: str, bot_responses_count: int = 0
 ) -> bool:
     """Use AI agent to decide if the bot should reply to a message."""
     try:
+        # Don't respond if we've already responded too much recently
+        if bot_responses_count >= 2:
+            return False
+            
         return agent_should_respond(previous_messages, current_message, guild_context, author, custom_context)
     except Exception as e:
         log.error(f"Error deciding to respond: {e}")
@@ -234,21 +304,35 @@ async def on_message(message: discord.Message) -> None:
                 age_str = f"{days}d" if days else f"{hours}h"
                 user_context = f'\nYour last progress: "{text}" ({age_str} ago)'
 
-            previous_messages, current_message = await _get_recent_messages(message)
-            memories = _build_memories_context(message.guild)
-            preamble = ""
-            if custom_context:
-                preamble += f"{custom_context}\n"
-            preamble += f"Edginess level: {edginess}\n"
-            prompt = (
-                f"{preamble}Memories:\n{memories}\n\nPrevious conversation:\n{previous_messages}\n\n"
-                f"CURRENT MESSAGE (the one you're responding to):\n{current_message}\n\n"
-                "Recent updates from everyone:\n"
-                f"{guild_context}{user_context}\n"
-                "Respond as HollowBot to the CURRENT MESSAGE, referencing their progress if relevant. "
-                "Keep it short and gamer-like (1-2 sentences max). Do NOT include 'HollowBot:' or any name prefix in your response."
-            )
+            previous_messages, current_message, bot_responses_count = await _get_recent_messages(message)
+            focused_context = _build_focused_context(message.guild, current_message)
+            
+            # Build properly structured prompt with delimiters
+            system_message = _build_system_message(custom_context, edginess)
+            
+            prompt = f"""<system>
+{system_message}
+</system>
+
+<context>
+{focused_context if focused_context != "No recent Hollow Knight updates." else "No relevant Hollow Knight context available."}
+{user_context if user_context else ""}
+</context>
+
+<conversation>
+{previous_messages if previous_messages != "No previous messages." else "No previous conversation."}
+</conversation>
+
+<message>
+{current_message}
+</message>
+
+<instructions>
+Respond to the message above as HollowBot. Keep your response to 1-2 sentences maximum. Be natural and conversational. Do not include any name prefix in your response.
+</instructions>"""
             reply = generate_reply(prompt, edginess=edginess)
+            if reply:
+                _increment_bot_response_count(message.guild.id)
             await message.reply(
                 reply or "The echoes of Hallownest have been heard, gamer."
             )
@@ -260,25 +344,39 @@ async def on_message(message: discord.Message) -> None:
                 log.info("Spontaneous response triggered in guild %s", message.guild.id)
                 guild_context = _build_updates_context(message.guild)
                 memories = _build_memories_context(message.guild)
-                previous_messages, current_message = await _get_recent_messages(message)
+                previous_messages, current_message, bot_responses_count = await _get_recent_messages(message)
                 custom_context = database.get_custom_context(message.guild.id)
                 edginess = database.get_edginess(message.guild.id)
                 if _should_respond(
-                    previous_messages, current_message, guild_context, message.author.display_name, custom_context
+                    previous_messages, current_message, guild_context, message.author.display_name, custom_context, bot_responses_count
                 ):
-                    preamble = ""
-                    if custom_context:
-                        preamble += f"{custom_context}\n"
-                    preamble += f"Edginess level: {edginess}\n"
-                    prompt = (
-                        f"{preamble}Memories:\n{memories}\n\nPrevious conversation:\n{previous_messages}\n\n"
-                        f"CURRENT MESSAGE (the one you're responding to):\n{current_message}\n\n"
-                        "Recent updates from everyone:\n"
-                        f"{guild_context}\n"
-                        "Respond as HollowBot to the CURRENT MESSAGE. Keep it short and gamer-like (1-2 sentences max). Do NOT include 'HollowBot:' or any name prefix in your response."
-                    )
+                    focused_context = _build_focused_context(message.guild, current_message)
+                    
+                    # Build properly structured prompt with delimiters
+                    system_message = _build_system_message(custom_context, edginess)
+                    
+                    prompt = f"""<system>
+{system_message}
+</system>
+
+<context>
+{focused_context if focused_context != "No recent Hollow Knight updates." else "No relevant Hollow Knight context available."}
+</context>
+
+<conversation>
+{previous_messages if previous_messages != "No previous messages." else "No previous conversation."}
+</conversation>
+
+<message>
+{current_message}
+</message>
+
+<instructions>
+Respond to the message above as HollowBot. Keep your response to 1-2 sentences maximum. Be natural and conversational. Do not include any name prefix in your response.
+</instructions>"""
                     reply = generate_reply(prompt, edginess=edginess)
                     if reply:
+                        _increment_bot_response_count(message.guild.id)
                         await message.reply(reply)
 
 

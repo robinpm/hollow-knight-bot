@@ -25,7 +25,7 @@ class BotConfig:
 
     # Optional settings (with defaults)
     command_prefix: str = "!"
-    spontaneous_response_chance: float = 0.05
+    spontaneous_response_chance: float = 0.02
     database_path: str = "bot.sqlite3"
     database_url: Optional[str] = None  # PostgreSQL connection string
     gemini_model: str = "gemini-2.0-flash"
@@ -49,7 +49,7 @@ class BotConfig:
             google_api_key=google_api_key,
             command_prefix=os.getenv("COMMAND_PREFIX", "!"),
             spontaneous_response_chance=float(
-                os.getenv("SPONTANEOUS_RESPONSE_CHANCE", "0.05")
+                os.getenv("SPONTANEOUS_RESPONSE_CHANCE", "0.02")
             ),
             database_path=os.getenv("DATABASE_PATH", "bot.sqlite3"),
             database_url=os.getenv("DATABASE_URL"),  # PostgreSQL connection string

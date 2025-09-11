@@ -123,11 +123,8 @@ def generate_reply(
     """Return a quick snarky reply from Gemini."""
     try:
         log.debug("Generating reply with Gemini")
-        extra = f"\nEdginess level: {edginess}" if edginess is not None else ""
-        short_prompt = (
-            f"{prompt}{extra}\n\nIMPORTANT: Keep your response SHORT - maximum 1-2 sentences. Be concise and to the point. Do NOT include 'HollowBot:' or any name prefix in your response."
-        )
-        return _gemini_client.generate_content(short_prompt, model)
+        # The prompt is already properly structured with system message and instructions
+        return _gemini_client.generate_content(prompt, model)
     except Exception as e:
         log.error(f"Failed to generate reply: {e}")
         return "The Infection got to my response system. But I noted that, don't worry."
