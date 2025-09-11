@@ -3,8 +3,8 @@ from typing import Optional
 
 from langchain_core.language_models.llms import LLM
 
-from ..gemini_integration import generate_reply
-from ...core.logger import log
+from ai.gemini_integration import generate_reply
+from core.logger import log
 
 
 class GeminiLLM(LLM):
