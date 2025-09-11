@@ -475,6 +475,72 @@ class DatabaseManager:
                 except:
                     pass  # Index already exists
 
+                # Check if progress table needs migration (missing player_hash column)
+                try:
+                    cur.execute("SELECT player_hash FROM progress LIMIT 1")
+                except:
+                    # player_hash column doesn't exist, need to migrate
+                    log.info("Migrating progress table to add player_hash column...")
+                    
+                    # Create new progress table with player_hash
+                    cur.execute("""
+                        CREATE TABLE progress_new (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            player_hash VARCHAR(255) NOT NULL,
+                            guild_id VARCHAR(255) NOT NULL,
+                            user_id VARCHAR(255) NOT NULL,
+                            update_text TEXT,
+                            playtime_hours FLOAT,
+                            completion_percent FLOAT,
+                            geo INT,
+                            health INT,
+                            max_health INT,
+                            deaths INT,
+                            scene VARCHAR(255),
+                            zone VARCHAR(255),
+                            nail_upgrades INT,
+                            soul_vessels INT,
+                            mask_shards INT,
+                            charms_owned INT,
+                            bosses_defeated INT,
+                            bosses_defeated_list TEXT,
+                            charms_list TEXT,
+                            ts BIGINT NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (player_hash) REFERENCES players(player_hash)
+                        )
+                    """)
+                    
+                    # Copy existing data to new table with generated player hashes
+                    cur.execute("""
+                        INSERT INTO progress_new (player_hash, guild_id, user_id, update_text, playtime_hours, 
+                                                completion_percent, geo, health, max_health, deaths, scene, zone,
+                                                nail_upgrades, soul_vessels, mask_shards, charms_owned, 
+                                                bosses_defeated, bosses_defeated_list, charms_list, ts, created_at)
+                        SELECT 
+                            SUBSTRING(SHA2(CONCAT(guild_id, ':', user_id), 256), 1, 16) as player_hash,
+                            guild_id, user_id, update_text, playtime_hours, completion_percent, geo, health, 
+                            max_health, deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards, 
+                            charms_owned, bosses_defeated, bosses_defeated_list, charms_list, ts, created_at
+                        FROM progress
+                    """)
+                    
+                    # Drop old table and rename new one
+                    cur.execute("DROP TABLE progress")
+                    cur.execute("ALTER TABLE progress_new RENAME TO progress")
+                    
+                    # Create players table entries for existing users
+                    cur.execute("""
+                        INSERT IGNORE INTO players (player_hash, guild_id, user_id, display_name, first_seen, last_activity)
+                        SELECT DISTINCT 
+                            SUBSTRING(SHA2(CONCAT(guild_id, ':', user_id), 256), 1, 16) as player_hash,
+                            guild_id, user_id, 'Unknown User', MIN(created_at), MAX(created_at)
+                        FROM progress 
+                        GROUP BY guild_id, user_id
+                    """)
+                    
+                    log.info("Successfully migrated progress table and created player records")
+                
                 # Create indexes
                 try:
                     cur.execute("CREATE INDEX idx_players_hash ON players(player_hash)")
@@ -637,18 +703,21 @@ def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
         raise ValueError("Timestamp must be positive")
     
     try:
+        # Get or create player to ensure we have a player_hash
+        player_hash = get_or_create_player(guild_id, user_id)
+        
         with _db_manager.get_connection() as conn:
             if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO progress (guild_id, user_id, update_text, ts) VALUES (%s, %s, %s, %s)",
-                        (str(guild_id), str(user_id), text.strip(), ts),
+                        "INSERT INTO progress (player_hash, guild_id, user_id, update_text, ts) VALUES (%s, %s, %s, %s, %s)",
+                        (player_hash, str(guild_id), str(user_id), text.strip(), ts),
                     )
                     conn.commit()
             else:
                 conn.execute(
-                    "INSERT INTO progress (guild_id, user_id, update_text, ts) VALUES (?, ?, ?, ?)",
-                    (str(guild_id), str(user_id), text.strip(), ts),
+                    "INSERT INTO progress (player_hash, guild_id, user_id, update_text, ts) VALUES (?, ?, ?, ?, ?)",
+                    (player_hash, str(guild_id), str(user_id), text.strip(), ts),
                 )
                 conn.commit()
             log.info(f"Added progress update for guild {guild_id}, user {user_id}")
