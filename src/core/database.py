@@ -740,7 +740,7 @@ def get_last_update(guild_id: int, user_id: int) -> Optional[Tuple[str, int]]:
     """Return the most recent update for a user in a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT update_text, ts FROM progress WHERE guild_id=%s AND user_id=%s ORDER BY ts DESC LIMIT 1",
@@ -766,7 +766,7 @@ def get_player_progress_history(guild_id: int, user_id: int, limit: int = 10) ->
         player_hash = generate_player_hash(guild_id, user_id)
         
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT 
@@ -833,7 +833,7 @@ def get_updates_today_by_guild(guild_id: int) -> Dict[str, List[str]]:
         start_ts = int(start_of_day.timestamp())
         
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT user_id, update_text FROM progress WHERE guild_id=%s AND ts>=%s ORDER BY ts DESC",
@@ -984,7 +984,7 @@ def get_all_guild_configs() -> List[Tuple[int, Optional[int], Optional[str], str
     """Return all guild configurations with timezone."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute("SELECT guild_id, recap_channel_id, recap_time, timezone FROM guild_config")
                     rows = cur.fetchall()
@@ -1253,13 +1253,13 @@ def get_user_stats(guild_id: int) -> List[Tuple[str, int, int, int, int]]:
         recent_threshold = int(time.time()) - 7 * 24 * 3600  # 7 days ago
         
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT 
                             user_id,
                             COUNT(*) as total_updates,
-                            COUNT(DISTINCT DATE(to_timestamp(ts))) as days_active,
+                            COUNT(DISTINCT DATE(FROM_UNIXTIME(ts))) as days_active,
                             COUNT(CASE WHEN ts >= %s THEN 1 END) as recent_updates,
                             MIN(ts) as first_update_ts
                         FROM progress 
