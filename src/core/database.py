@@ -638,7 +638,7 @@ def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
     
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO progress (guild_id, user_id, update_text, ts) VALUES (%s, %s, %s, %s)",
@@ -867,7 +867,7 @@ def add_memory(guild_id: int, text: str) -> int:
 
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO memories (guild_id, memory_text) VALUES (%s, %s) RETURNING id",
@@ -892,7 +892,7 @@ def get_memories_by_guild(guild_id: int) -> List[Tuple[int, str]]:
     """Return all memories for a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT id, memory_text FROM memories WHERE guild_id=%s ORDER BY id", 
@@ -916,7 +916,7 @@ def delete_memory(guild_id: int, memory_id: int) -> None:
     """Delete a memory by ID for a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "DELETE FROM memories WHERE guild_id=%s AND id=%s",
@@ -945,6 +945,13 @@ def set_recap_channel(guild_id: int, channel_id: int) -> None:
                         (str(guild_id), str(channel_id), str(channel_id)),
                     )
                     conn.commit()
+            elif _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, recap_channel_id) VALUES (%s, %s) ON DUPLICATE KEY UPDATE recap_channel_id=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), str(channel_id), str(channel_id)),
+                    )
+                    conn.commit()
             else:
                 conn.execute(
                     "INSERT OR REPLACE INTO guild_config (guild_id, recap_channel_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
@@ -965,6 +972,13 @@ def set_recap_time(guild_id: int, time_str: str, timezone_str: str = "UTC") -> N
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO guild_config (guild_id, recap_time, timezone) VALUES (%s, %s, %s) ON CONFLICT (guild_id) DO UPDATE SET recap_time=%s, timezone=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), time_str, timezone_str, time_str, timezone_str),
+                    )
+                    conn.commit()
+            elif _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, recap_time, timezone) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE recap_time=%s, timezone=%s, updated_at=CURRENT_TIMESTAMP",
                         (str(guild_id), time_str, timezone_str, time_str, timezone_str),
                     )
                     conn.commit()
@@ -1018,6 +1032,14 @@ def set_custom_context(guild_id: int, context: str) -> None:
                         (str(guild_id), context, context),
                     )
                     conn.commit()
+            elif _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, custom_context) VALUES (%s, %s) "
+                        "ON DUPLICATE KEY UPDATE custom_context=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), context, context),
+                    )
+                    conn.commit()
             else:
                 conn.execute(
                     "INSERT INTO guild_config (guild_id, custom_context) VALUES (?, ?) "
@@ -1035,7 +1057,7 @@ def get_custom_context(guild_id: int) -> str:
     """Get custom prompt context for a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT custom_context FROM guild_config WHERE guild_id=%s",
@@ -1059,7 +1081,7 @@ def clear_custom_context(guild_id: int) -> None:
     """Clear custom prompt context for a guild."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "UPDATE guild_config SET custom_context=NULL, updated_at=CURRENT_TIMESTAMP WHERE guild_id=%s",
@@ -1090,6 +1112,14 @@ def set_edginess(guild_id: int, level: int) -> None:
                         (str(guild_id), level, level),
                     )
                     conn.commit()
+            elif _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO guild_config (guild_id, edginess) VALUES (%s, %s) "
+                        "ON DUPLICATE KEY UPDATE edginess=%s, updated_at=CURRENT_TIMESTAMP",
+                        (str(guild_id), level, level),
+                    )
+                    conn.commit()
             else:
                 conn.execute(
                     "INSERT INTO guild_config (guild_id, edginess) VALUES (?, ?) "
@@ -1107,7 +1137,7 @@ def get_edginess(guild_id: int) -> int:
     """Get edginess level for a guild. Defaults to 5."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT edginess FROM guild_config WHERE guild_id=%s",
@@ -1137,7 +1167,7 @@ def add_achievement(guild_id: int, user_id: int, achievement_type: str, achievem
     
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO achievements (guild_id, user_id, achievement_type, achievement_name, progress_text, ts) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -1163,7 +1193,7 @@ def get_user_achievements(guild_id: int) -> List[Tuple[str, str, int, int, int, 
     """Get user achievement statistics for leaderboard. Returns (user_id, achievement_type, count, total_score, unique_achievements, first_achievement_ts)."""
     try:
         with _db_manager.get_connection() as conn:
-            if _db_manager._use_postgres:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT 
