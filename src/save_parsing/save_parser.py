@@ -210,12 +210,13 @@ def _convert_binary_save_to_json(file_content: bytes) -> Dict[str, Any]:
 
 def format_save_summary(summary: Dict[str, Any]) -> str:
     """Format the save data summary into a Discord-friendly message."""
-    if summary["completion_percent"] == 0:
-        return "🎮 **Fresh Save Detected!** Time to start your Hallownest journey, gamer!"
+    completion = summary["completion_percent"]
     
     # Determine progress stage
-    completion = summary["completion_percent"]
-    if completion < 20:
+    if completion == 0:
+        stage = "Fresh Save"
+        emoji = "🌱"
+    elif completion < 20:
         stage = "Early Game"
         emoji = "🌱"
     elif completion < 50:
@@ -231,7 +232,7 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
         stage = "112% Complete"
         emoji = "🏆"
     
-    # Format the message
+    # Format the message - always show detailed stats
     message = f"""🎮 **Hollow Knight Progress Analysis** {emoji}
 **Stage**: {stage} ({completion}% complete)
 
@@ -247,7 +248,9 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
 📍 **Current Location**: {summary['scene']} ({summary['zone']})"""
     
     # Add some personality based on stats
-    if summary['deaths'] > 100:
+    if completion == 0:
+        message += "\n\n🎮 Fresh save detected! Time to start your Hallownest journey, gamer!"
+    elif summary['deaths'] > 100:
         message += "\n\n💀 Bruh, that's a lot of deaths. The Infection really got to you, huh?"
     elif summary['deaths'] < 10 and completion > 50:
         message += "\n\n🔥 Damn, you're good! Barely any deaths and you're already deep in Hallownest!"

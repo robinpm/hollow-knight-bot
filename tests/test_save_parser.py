@@ -197,10 +197,12 @@ class TestSaveSummaryFormatting:
         summary = parse_hk_save(content)
         formatted = format_save_summary(summary)
         
-        assert "Fresh Save Detected" in formatted
+        assert "Fresh save detected!" in formatted
         assert "Hallownest journey" in formatted
-        # Note: The fresh save formatting doesn't include specific numbers
-        # it just says "Fresh Save Detected!" with a generic message
+        assert "Hollow Knight Progress Analysis" in formatted
+        assert "Playtime" in formatted
+        assert "Geo" in formatted
+        # Note: Now fresh saves show full stats with "Fresh save detected!" message
     
     def test_midgame_save_formatting(self, midgame_save_file):
         """Test formatting of mid-game save summary."""
