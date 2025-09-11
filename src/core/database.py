@@ -1,5 +1,7 @@
 """Database layer for Hollow Knight bot with SQLite and PostgreSQL support."""
 
+import hashlib
+import json
 import logging
 import os
 import sqlite3
@@ -22,10 +24,15 @@ class DatabaseManager:
     """Manages database connections and operations."""
     
     def __init__(self):
-        self._use_postgres = bool(config.database_url)
+        self._use_postgres = bool(config.database_url and config.database_url.startswith('postgresql://'))
+        self._use_mysql = bool(config.database_url and config.database_url.startswith('mysql://'))
+        
         if self._use_postgres:
             log.info("Using PostgreSQL database")
             self._init_postgres()
+        elif self._use_mysql:
+            log.info("Using MySQL database")
+            self._init_mysql()
         else:
             log.info("Using SQLite database")
             self._init_sqlite()
@@ -46,18 +53,60 @@ class DatabaseManager:
         except ImportError:
             raise DatabaseError("psycopg2-binary is required for PostgreSQL support")
     
+    def _init_mysql(self):
+        """Initialize MySQL database."""
+        try:
+            import pymysql
+            from pymysql.cursors import DictCursor
+            self._pymysql = pymysql
+            self._DictCursor = DictCursor
+            self._ensure_mysql_tables()
+        except ImportError:
+            raise DatabaseError("PyMySQL is required for MySQL support")
+    
     def _ensure_sqlite_tables(self):
         """Create SQLite tables if they don't exist."""
         with self.get_connection() as conn:
+            # Create players table with unique hash-based IDs
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS players (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_hash TEXT UNIQUE NOT NULL,
+                    guild_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    display_name TEXT,
+                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Create progress table to store detailed save file stats
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS progress (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_hash TEXT NOT NULL,
                     guild_id TEXT NOT NULL,
                     user_id TEXT NOT NULL,
-                    update_text TEXT NOT NULL,
+                    update_text TEXT,
+                    playtime_hours REAL,
+                    completion_percent REAL,
+                    geo INTEGER,
+                    health INTEGER,
+                    max_health INTEGER,
+                    deaths INTEGER,
+                    scene TEXT,
+                    zone TEXT,
+                    nail_upgrades INTEGER,
+                    soul_vessels INTEGER,
+                    mask_shards INTEGER,
+                    charms_owned INTEGER,
+                    bosses_defeated INTEGER,
+                    bosses_defeated_list TEXT,
+                    charms_list TEXT,
                     ts INTEGER NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    FOREIGN KEY (player_hash) REFERENCES players(player_hash)
                 )
             """)
             
@@ -126,7 +175,81 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_achievements_type ON achievements(achievement_type)"
             )
 
+            # Migrate existing progress table to new structure
+            try:
+                # Check if old progress table exists and migrate it
+                cur = conn.execute("PRAGMA table_info(progress)")
+                columns = [row[1] for row in cur.fetchall()]
+                
+                if 'player_hash' not in columns:
+                    log.info("Migrating existing progress table to new structure...")
+                    
+                    # Create new progress table with all columns
+                    conn.execute("""
+                        CREATE TABLE progress_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            player_hash TEXT NOT NULL,
+                            guild_id TEXT NOT NULL,
+                            user_id TEXT NOT NULL,
+                            update_text TEXT,
+                            playtime_hours REAL,
+                            completion_percent REAL,
+                            geo INTEGER,
+                            health INTEGER,
+                            max_health INTEGER,
+                            deaths INTEGER,
+                            scene TEXT,
+                            zone TEXT,
+                            nail_upgrades INTEGER,
+                            soul_vessels INTEGER,
+                            mask_shards INTEGER,
+                            charms_owned INTEGER,
+                            bosses_defeated INTEGER,
+                            bosses_defeated_list TEXT,
+                            charms_list TEXT,
+                            ts INTEGER NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    
+                    # Copy existing data to new table with generated player hashes
+                    conn.execute("""
+                        INSERT INTO progress_new (player_hash, guild_id, user_id, update_text, ts, created_at)
+                        SELECT 
+                            substr(hex(sha256(guild_id || ':' || user_id)), 1, 16) as player_hash,
+                            guild_id, user_id, update_text, ts, created_at 
+                        FROM progress
+                    """)
+                    
+                    # Drop old table and rename new one
+                    conn.execute("DROP TABLE progress")
+                    conn.execute("ALTER TABLE progress_new RENAME TO progress")
+                    
+                    # Create players table entries for existing users
+                    conn.execute("""
+                        INSERT OR IGNORE INTO players (player_hash, guild_id, user_id, display_name, first_seen, last_activity)
+                        SELECT DISTINCT 
+                            substr(hex(sha256(guild_id || ':' || user_id)), 1, 16) as player_hash,
+                            guild_id, user_id, 'Unknown User', MIN(created_at), MAX(created_at)
+                        FROM progress 
+                        GROUP BY guild_id, user_id
+                    """)
+                    
+                    log.info("Successfully migrated progress table and created player records")
+                    
+            except sqlite3.OperationalError as e:
+                log.warning(f"Migration not needed or failed: {e}")
+
             # Create indexes
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_players_hash ON players(player_hash)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_players_guild_user ON players(guild_id, user_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_progress_player_hash ON progress(player_hash)"
+            )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)"
             )
@@ -140,15 +263,46 @@ class DatabaseManager:
         """Create PostgreSQL tables if they don't exist."""
         with self.get_connection() as conn:
             with conn.cursor() as cur:
+                # Create players table with unique hash-based IDs
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS players (
+                        id SERIAL PRIMARY KEY,
+                        player_hash VARCHAR(255) UNIQUE NOT NULL,
+                        guild_id VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(255) NOT NULL,
+                        display_name VARCHAR(255),
+                        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Create progress table to store detailed save file stats
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS progress (
                         id SERIAL PRIMARY KEY,
+                        player_hash VARCHAR(255) NOT NULL,
                         guild_id VARCHAR(255) NOT NULL,
                         user_id VARCHAR(255) NOT NULL,
-                        update_text TEXT NOT NULL,
+                        update_text TEXT,
+                        playtime_hours REAL,
+                        completion_percent REAL,
+                        geo INTEGER,
+                        health INTEGER,
+                        max_health INTEGER,
+                        deaths INTEGER,
+                        scene VARCHAR(255),
+                        zone VARCHAR(255),
+                        nail_upgrades INTEGER,
+                        soul_vessels INTEGER,
+                        mask_shards INTEGER,
+                        charms_owned INTEGER,
+                        bosses_defeated INTEGER,
+                        bosses_defeated_list TEXT,
+                        charms_list TEXT,
                         ts BIGINT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        FOREIGN KEY (player_hash) REFERENCES players(player_hash)
                     )
                 """)
                 
@@ -214,10 +368,136 @@ class DatabaseManager:
                 )
 
                 # Create indexes
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_players_hash ON players(player_hash)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_players_guild_user ON players(guild_id, user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_player_hash ON progress(player_hash)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_ts ON progress(ts)")
                 conn.commit()
                 log.info("PostgreSQL database initialized successfully")
+    
+    def _ensure_mysql_tables(self):
+        """Create MySQL tables if they don't exist."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                # Create players table with unique hash-based IDs
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS players (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        player_hash VARCHAR(255) UNIQUE NOT NULL,
+                        guild_id VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(255) NOT NULL,
+                        display_name VARCHAR(255),
+                        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Create progress table to store detailed save file stats
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS progress (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        player_hash VARCHAR(255) NOT NULL,
+                        guild_id VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(255) NOT NULL,
+                        update_text TEXT,
+                        playtime_hours FLOAT,
+                        completion_percent FLOAT,
+                        geo INT,
+                        health INT,
+                        max_health INT,
+                        deaths INT,
+                        scene VARCHAR(255),
+                        zone VARCHAR(255),
+                        nail_upgrades INT,
+                        soul_vessels INT,
+                        mask_shards INT,
+                        charms_owned INT,
+                        bosses_defeated INT,
+                        bosses_defeated_list TEXT,
+                        charms_list TEXT,
+                        ts BIGINT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (player_hash) REFERENCES players(player_hash)
+                    )
+                """)
+                
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS guild_config (
+                        guild_id VARCHAR(255) PRIMARY KEY,
+                        recap_channel_id VARCHAR(255),
+                        recap_time VARCHAR(10),
+                        timezone VARCHAR(50) DEFAULT 'UTC',
+                        custom_context TEXT,
+                        edginess INT DEFAULT 5,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS memories (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        guild_id VARCHAR(255) NOT NULL,
+                        memory_text TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # Create indexes (MySQL doesn't support IF NOT EXISTS for indexes)
+                try:
+                    cur.execute("CREATE INDEX idx_memories_guild ON memories(guild_id)")
+                except:
+                    pass  # Index already exists
+
+                # Create achievements table for tracking game progress
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS achievements (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        guild_id VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(255) NOT NULL,
+                        achievement_type VARCHAR(100) NOT NULL,
+                        achievement_name VARCHAR(255) NOT NULL,
+                        progress_text TEXT NOT NULL,
+                        ts BIGINT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # Create indexes (MySQL doesn't support IF NOT EXISTS for indexes)
+                try:
+                    cur.execute("CREATE INDEX idx_achievements_guild_user ON achievements(guild_id, user_id)")
+                except:
+                    pass  # Index already exists
+                try:
+                    cur.execute("CREATE INDEX idx_achievements_type ON achievements(achievement_type)")
+                except:
+                    pass  # Index already exists
+
+                # Create indexes
+                try:
+                    cur.execute("CREATE INDEX idx_players_hash ON players(player_hash)")
+                except:
+                    pass  # Index already exists
+                try:
+                    cur.execute("CREATE INDEX idx_players_guild_user ON players(guild_id, user_id)")
+                except:
+                    pass  # Index already exists
+                try:
+                    cur.execute("CREATE INDEX idx_progress_player_hash ON progress(player_hash)")
+                except:
+                    pass  # Index already exists
+                try:
+                    cur.execute("CREATE INDEX idx_progress_guild_user ON progress(guild_id, user_id)")
+                except:
+                    pass  # Index already exists
+                try:
+                    cur.execute("CREATE INDEX idx_progress_ts ON progress(ts)")
+                except:
+                    pass  # Index already exists
+                conn.commit()
+                log.info("MySQL database initialized successfully")
     
     @contextmanager
     def get_connection(self):
@@ -238,6 +518,34 @@ class DatabaseManager:
             finally:
                 if conn:
                     conn.close()
+        elif self._use_mysql:
+            conn = None
+            try:
+                # Parse MySQL URL: mysql://user:pass@host:port/database
+                import urllib.parse
+                parsed = urllib.parse.urlparse(config.database_url)
+                
+                conn = self._pymysql.connect(
+                    host=parsed.hostname,
+                    port=parsed.port or 3306,
+                    user=parsed.username,
+                    password=parsed.password,
+                    database=parsed.path[1:],  # Remove leading slash
+                    cursorclass=self._DictCursor,
+                    charset='utf8mb4',
+                    ssl_disabled=False,
+                    ssl_verify_cert=False,
+                    ssl_verify_identity=False
+                )
+                yield conn
+            except Exception as e:
+                if conn:
+                    conn.rollback()
+                log.error(f"MySQL connection error: {e}")
+                raise DatabaseError(f"Database connection failed: {e}") from e
+            finally:
+                if conn:
+                    conn.close()
         else:
             conn = None
             try:
@@ -254,6 +562,70 @@ class DatabaseManager:
 
 # Global database manager instance
 _db_manager = DatabaseManager()
+
+
+def generate_player_hash(guild_id: int, user_id: int) -> str:
+    """Generate a unique hash for a player based on guild and user ID."""
+    combined = f"{guild_id}:{user_id}"
+    return hashlib.sha256(combined.encode()).hexdigest()[:16]  # 16 char hash
+
+
+def get_or_create_player(guild_id: int, user_id: int, display_name: str = None) -> str:
+    """Get or create a player record and return the player hash."""
+    player_hash = generate_player_hash(guild_id, user_id)
+    
+    try:
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    # Try to get existing player
+                    cur.execute(
+                        "SELECT player_hash FROM players WHERE player_hash = %s",
+                        (player_hash,)
+                    )
+                    if cur.fetchone():
+                        # Update last activity
+                        cur.execute(
+                            "UPDATE players SET last_activity = CURRENT_TIMESTAMP WHERE player_hash = %s",
+                            (player_hash,)
+                        )
+                        conn.commit()
+                        return player_hash
+                    
+                    # Create new player
+                    cur.execute(
+                        "INSERT INTO players (player_hash, guild_id, user_id, display_name) VALUES (%s, %s, %s, %s)",
+                        (player_hash, str(guild_id), str(user_id), display_name)
+                    )
+                    conn.commit()
+            else:
+                # Try to get existing player
+                cur = conn.execute(
+                    "SELECT player_hash FROM players WHERE player_hash = ?",
+                    (player_hash,)
+                )
+                if cur.fetchone():
+                    # Update last activity
+                    conn.execute(
+                        "UPDATE players SET last_activity = CURRENT_TIMESTAMP WHERE player_hash = ?",
+                        (player_hash,)
+                    )
+                    conn.commit()
+                    return player_hash
+                
+                # Create new player
+                conn.execute(
+                    "INSERT INTO players (player_hash, guild_id, user_id, display_name) VALUES (?, ?, ?, ?)",
+                    (player_hash, str(guild_id), str(user_id), display_name)
+                )
+                conn.commit()
+            
+            log.info(f"Created new player: {player_hash} for guild {guild_id}, user {user_id}")
+            return player_hash
+            
+    except Exception as e:
+        log.error(f"Failed to get or create player: {e}")
+        raise DatabaseError(f"Failed to get or create player: {e}") from e
 
 
 def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
@@ -285,6 +657,85 @@ def add_update(guild_id: int, user_id: int, text: str, ts: int) -> None:
         raise DatabaseError(f"Failed to add progress update: {e}") from e
 
 
+def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats: Dict, ts: int) -> str:
+    """Store detailed save file progress with all stats."""
+    try:
+        # Get or create player
+        player_hash = get_or_create_player(guild_id, user_id, display_name)
+        
+        # Prepare save stats data
+        bosses_list = json.dumps(save_stats.get('bosses_defeated_list', []))
+        charms_list = json.dumps(save_stats.get('charms_list', []))
+        
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres or _db_manager._use_mysql:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO progress (
+                            player_hash, guild_id, user_id, update_text,
+                            playtime_hours, completion_percent, geo, health, max_health,
+                            deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                            charms_owned, bosses_defeated, bosses_defeated_list, charms_list, ts
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        player_hash, str(guild_id), str(user_id), 
+                        f"Save file: {save_stats.get('completion_percent', 0)}% complete",
+                        save_stats.get('playtime_hours', 0),
+                        save_stats.get('completion_percent', 0),
+                        save_stats.get('geo', 0),
+                        save_stats.get('health', 0),
+                        save_stats.get('max_health', 0),
+                        save_stats.get('deaths', 0),
+                        save_stats.get('scene', 'Unknown'),
+                        save_stats.get('zone', 'Unknown'),
+                        save_stats.get('nail_upgrades', 0),
+                        save_stats.get('soul_vessels', 0),
+                        save_stats.get('mask_shards', 0),
+                        save_stats.get('charms_owned', 0),
+                        save_stats.get('bosses_defeated', 0),
+                        bosses_list,
+                        charms_list,
+                        ts
+                    ))
+                    conn.commit()
+            else:
+                conn.execute("""
+                    INSERT INTO progress (
+                        player_hash, guild_id, user_id, update_text,
+                        playtime_hours, completion_percent, geo, health, max_health,
+                        deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                        charms_owned, bosses_defeated, bosses_defeated_list, charms_list, ts
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    player_hash, str(guild_id), str(user_id),
+                    f"Save file: {save_stats.get('completion_percent', 0)}% complete",
+                    save_stats.get('playtime_hours', 0),
+                    save_stats.get('completion_percent', 0),
+                    save_stats.get('geo', 0),
+                    save_stats.get('health', 0),
+                    save_stats.get('max_health', 0),
+                    save_stats.get('deaths', 0),
+                    save_stats.get('scene', 'Unknown'),
+                    save_stats.get('zone', 'Unknown'),
+                    save_stats.get('nail_upgrades', 0),
+                    save_stats.get('soul_vessels', 0),
+                    save_stats.get('mask_shards', 0),
+                    save_stats.get('charms_owned', 0),
+                    save_stats.get('bosses_defeated', 0),
+                    bosses_list,
+                    charms_list,
+                    ts
+                ))
+                conn.commit()
+        
+        log.info(f"Added save progress for player {player_hash}: {save_stats.get('completion_percent', 0)}% complete")
+        return player_hash
+        
+    except Exception as e:
+        log.error(f"Failed to add save progress: {e}")
+        raise DatabaseError(f"Failed to add save progress: {e}") from e
+
+
 def get_last_update(guild_id: int, user_id: int) -> Optional[Tuple[str, int]]:
     """Return the most recent update for a user in a guild."""
     try:
@@ -307,6 +758,70 @@ def get_last_update(guild_id: int, user_id: int) -> Optional[Tuple[str, int]]:
     except Exception as e:
         log.error(f"Failed to get last update: {e}")
         raise DatabaseError(f"Failed to retrieve last update: {e}") from e
+
+
+def get_player_progress_history(guild_id: int, user_id: int, limit: int = 10) -> List[Dict]:
+    """Get detailed progress history for a player."""
+    try:
+        player_hash = generate_player_hash(guild_id, user_id)
+        
+        with _db_manager.get_connection() as conn:
+            if _db_manager._use_postgres:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT 
+                            playtime_hours, completion_percent, geo, health, max_health,
+                            deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                            charms_owned, bosses_defeated, bosses_defeated_list, charms_list,
+                            ts, created_at
+                        FROM progress 
+                        WHERE player_hash = %s 
+                        ORDER BY ts DESC 
+                        LIMIT %s
+                    """, (player_hash, limit))
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute("""
+                    SELECT 
+                        playtime_hours, completion_percent, geo, health, max_health,
+                        deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                        charms_owned, bosses_defeated, bosses_defeated_list, charms_list,
+                        ts, created_at
+                    FROM progress 
+                    WHERE player_hash = ? 
+                    ORDER BY ts DESC 
+                    LIMIT ?
+                """, (player_hash, limit))
+                rows = cur.fetchall()
+            
+            progress_history = []
+            for row in rows:
+                progress_entry = {
+                    'playtime_hours': row['playtime_hours'],
+                    'completion_percent': row['completion_percent'],
+                    'geo': row['geo'],
+                    'health': row['health'],
+                    'max_health': row['max_health'],
+                    'deaths': row['deaths'],
+                    'scene': row['scene'],
+                    'zone': row['zone'],
+                    'nail_upgrades': row['nail_upgrades'],
+                    'soul_vessels': row['soul_vessels'],
+                    'mask_shards': row['mask_shards'],
+                    'charms_owned': row['charms_owned'],
+                    'bosses_defeated': row['bosses_defeated'],
+                    'bosses_defeated_list': json.loads(row['bosses_defeated_list']) if row['bosses_defeated_list'] else [],
+                    'charms_list': json.loads(row['charms_list']) if row['charms_list'] else [],
+                    'ts': row['ts'],
+                    'created_at': row['created_at']
+                }
+                progress_history.append(progress_entry)
+            
+            return progress_history
+            
+    except Exception as e:
+        log.error(f"Failed to get player progress history: {e}")
+        raise DatabaseError(f"Failed to get player progress history: {e}") from e
 
 
 def get_updates_today_by_guild(guild_id: int) -> Dict[str, List[str]]:

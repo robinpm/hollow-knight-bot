@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "1.10"
+BOT_VERSION = "1.11"
 
 import asyncio
 import os
@@ -372,14 +372,18 @@ async def handle_progress_save_data(message: discord.Message, attachment: discor
         # Parse the save data
         summary = parse_hk_save(file_content)
         
-        # Create progress text from save data
-        progress_text = f"Uploaded save data: {summary['completion_percent']}% complete, {summary['playtime_hours']}h playtime, {summary['deaths']} deaths"
-        
-        # Store as progress update
+        # Store detailed save progress with all stats
         now_ts = int(time.time())
-        database.add_update(message.guild.id, message.author.id, progress_text, now_ts)
+        player_hash = database.add_save_progress(
+            message.guild.id, 
+            message.author.id, 
+            message.author.display_name, 
+            summary, 
+            now_ts
+        )
         
         # Generate memory from the save data
+        progress_text = f"Uploaded save data: {summary['completion_percent']}% complete, {summary['playtime_hours']}h playtime, {summary['deaths']} deaths"
         mem = generate_memory(progress_text)
         if mem:
             database.add_memory(message.guild.id, mem)
@@ -430,10 +434,15 @@ async def handle_save_data(message: discord.Message, attachment: discord.Attachm
         response = f"{formatted_summary}\n\n{analysis}"
         await message.reply(response)
         
-        # Also store this as a progress update
-        progress_text = f"Uploaded save data: {summary['completion_percent']}% complete, {summary['playtime_hours']}h playtime"
+        # Also store this as detailed save progress
         now_ts = int(time.time())
-        database.add_update(message.guild.id, message.author.id, progress_text, now_ts)
+        player_hash = database.add_save_progress(
+            message.guild.id, 
+            message.author.id, 
+            message.author.display_name, 
+            summary, 
+            now_ts
+        )
         
         log.info(f"Successfully processed save data for user {message.author.id}")
         
@@ -551,7 +560,7 @@ async def slash_progress(interaction: discord.Interaction, text: str) -> None:
 
 
 @hollow_group.command(
-    name="get_progress", description="Check the latest echo from a gamer's journey"
+    name="get_progress", description="Check the latest save data from a gamer's journey"
 )
 async def slash_get_progress(
     interaction: discord.Interaction, user: Optional[discord.Member] = None
@@ -569,43 +578,167 @@ async def slash_get_progress(
         log.info(
             f"Getting progress for user {target.id} in guild {interaction.guild.id}"
         )
-        result = database.get_last_update(interaction.guild.id, target.id)
-        log.info(f"Database returned: {result}")
-        if not result:
+        
+        # Get the latest save data for this player
+        progress_history = database.get_player_progress_history(interaction.guild.id, target.id, limit=1)
+        
+        if not progress_history:
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    f"No echoes recorded for {target.display_name} yet. Time to start that Hallownest journey, gamer!"
+                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
                 )
             else:
                 await interaction.followup.send(
-                    f"No echoes recorded for {target.display_name} yet. Time to start that Hallownest journey, gamer!"
+                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
                 )
             return
 
-        text, ts = result
-        age_sec = int(time.time()) - ts
+        # Get the most recent save data
+        latest_save = progress_history[0]
+        
+        # Calculate age
+        age_sec = int(time.time()) - latest_save['ts']
         days = age_sec // 86400
         hours = age_sec // 3600
         age_str = f"{days}d" if days else f"{hours}h"
-
+        
+        # Format the save data summary
+        completion = latest_save['completion_percent']
+        playtime = latest_save['playtime_hours']
+        geo = latest_save['geo']
+        health = latest_save['health']
+        max_health = latest_save['max_health']
+        deaths = latest_save['deaths']
+        scene = latest_save['scene']
+        zone = latest_save['zone']
+        nail_upgrades = latest_save['nail_upgrades']
+        soul_vessels = latest_save['soul_vessels']
+        mask_shards = latest_save['mask_shards']
+        charms_owned = latest_save['charms_owned']
+        bosses_defeated = latest_save['bosses_defeated']
+        
+        # Build the response message
+        message = f"📜 **Latest Save Data for {target.display_name}** ({age_str} ago)\n\n"
+        message += f"🎮 **Progress**: {completion}% complete\n"
+        message += f"⏱️ **Playtime**: {playtime:.2f} hours\n"
+        message += f"💰 **Geo**: {geo:,}\n"
+        message += f"❤️ **Health**: {health}/{max_health} hearts\n"
+        message += f"💀 **Deaths**: {deaths}\n"
+        message += f"🗡️ **Nail**: +{nail_upgrades} upgrades\n"
+        message += f"💙 **Soul**: {soul_vessels} vessels\n"
+        message += f"🎭 **Charms**: {charms_owned} owned\n"
+        message += f"👹 **Bosses**: {bosses_defeated} defeated\n"
+        message += f"📍 **Location**: {scene} ({zone})"
+        
         if not interaction.response.is_done():
-            await interaction.response.send_message(
-                f'📜 Last echo from **{target.display_name}**: "{text}" ({age_str} ago)'
-            )
+            await interaction.response.send_message(message)
         else:
-            await interaction.followup.send(
-                f'📜 Last echo from **{target.display_name}**: "{text}" ({age_str} ago)'
-            )
+            await interaction.followup.send(message)
+            
     except Exception as e:
         log.error(f"Error in slash_get_progress: {e}")
         if not interaction.response.is_done():
             await interaction.response.send_message(
-                "The Infection got to my memory system. Try again later, gamer!",
+                "The Infection got to my save data system. Try again later, gamer!",
                 ephemeral=True,
             )
         else:
             await interaction.followup.send(
-                "The Infection got to my memory system. Try again later, gamer!",
+                "The Infection got to my save data system. Try again later, gamer!",
+                ephemeral=True,
+            )
+
+
+@hollow_group.command(
+    name="save_history", description="View save file history for a player"
+)
+@app_commands.describe(
+    user="User to check save history for (defaults to yourself)",
+    limit="Number of recent saves to show (default: 5, max: 20)"
+)
+async def slash_save_history(
+    interaction: discord.Interaction, 
+    user: Optional[discord.Member] = None,
+    limit: Optional[int] = 5
+) -> None:
+    try:
+        if not interaction.guild:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                    ephemeral=True,
+                )
+            return
+
+        # Validate limit
+        if limit is None:
+            limit = 5
+        elif limit < 1 or limit > 20:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Limit must be between 1 and 20, gamer!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Limit must be between 1 and 20, gamer!",
+                    ephemeral=True,
+                )
+            return
+
+        target = user or interaction.user
+        log.info(
+            f"Getting save history for user {target.id} in guild {interaction.guild.id}, limit {limit}"
+        )
+        
+        # Get the save history for this player
+        progress_history = database.get_player_progress_history(interaction.guild.id, target.id, limit=limit)
+        
+        if not progress_history:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
+                )
+            else:
+                await interaction.followup.send(
+                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
+                )
+            return
+
+        # Build the history message
+        message = f"📜 **Save History for {target.display_name}** ({len(progress_history)} recent saves)\n\n"
+        
+        for i, save in enumerate(progress_history, 1):
+            # Calculate age
+            age_sec = int(time.time()) - save['ts']
+            days = age_sec // 86400
+            hours = age_sec // 3600
+            age_str = f"{days}d" if days else f"{hours}h"
+            
+            message += f"**#{i}** ({age_str} ago)\n"
+            message += f"🎮 {save['completion_percent']}% complete | ⏱️ {save['playtime_hours']:.1f}h | 💰 {save['geo']:,} geo\n"
+            message += f"❤️ {save['health']}/{save['max_health']} hearts | 💀 {save['deaths']} deaths | 👹 {save['bosses_defeated']} bosses\n"
+            message += f"📍 {save['scene']} ({save['zone']})\n\n"
+        
+        # Truncate if too long
+        if len(message) > 2000:
+            message = message[:1900] + "\n\n... (message truncated)"
+        
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message)
+        else:
+            await interaction.followup.send(message)
+            
+    except Exception as e:
+        log.error(f"Error in slash_save_history: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "The Infection got to my save history system. Try again later, gamer!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "The Infection got to my save history system. Try again later, gamer!",
                 ephemeral=True,
             )
 
@@ -1118,7 +1251,7 @@ def parse_hollow_knight_achievement(progress_text: str) -> Optional[Tuple[str, s
 
 @hollow_group.command(name="leaderboard", description="See who's ahead in the Hallownest journey")
 async def slash_leaderboard(interaction: discord.Interaction) -> None:
-    """Show the leaderboard of most accomplished gamers."""
+    """Show the leaderboard of most accomplished gamers based on save data."""
     try:
         if not interaction.guild:
             if not interaction.response.is_done():
@@ -1128,11 +1261,11 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
                 )
             return
 
-        # Get user achievements from database
-        achievements = database.get_user_achievements(interaction.guild.id)
+        # Get user stats from database
+        user_stats = database.get_user_stats(interaction.guild.id)
         
-        if not achievements:
-            message = "No gamers have started their Hallownest journey yet! Be the first to use `/hollow-bot progress` to record your achievements!"
+        if not user_stats:
+            message = "No gamers have uploaded save data yet! Be the first to upload a .dat file to start tracking your Hallownest journey!"
             if not interaction.response.is_done():
                 await interaction.response.send_message(message)
             else:
@@ -1140,9 +1273,9 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
             return
 
         # Build leaderboard message
-        message = "🏆 **Hallownest Achievement Leaderboard** 🏆\n\n"
+        message = "🏆 **Hallownest Progress Leaderboard** 🏆\n\n"
         
-        for i, (user_id, total_achievements, total_score, unique_types, first_achievement_ts) in enumerate(achievements[:10]):
+        for i, (user_id, total_updates, days_active, recent_updates, first_update_ts) in enumerate(user_stats[:10]):
             try:
                 user = interaction.guild.get_member(int(user_id))
                 if user:
@@ -1162,13 +1295,16 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
             else:
                 rank_emoji = f"{i+1}."
             
+            # Calculate days since first upload
+            days_since_first = (int(time.time()) - first_update_ts) // 86400
+            
             message += f"{rank_emoji} **{display_name}**\n"
-            message += f"   🏆 Score: {total_score} | 🎯 Achievements: {total_achievements} | 📊 Categories: {unique_types}\n\n"
+            message += f"   📊 Saves: {total_updates} | 📅 Active: {days_active} days | 🔥 Recent: {recent_updates} (7d) | ⏰ Playing: {days_since_first} days\n\n"
         
-        if len(achievements) > 10:
-            message += f"... and {len(achievements) - 10} more gamers on their journey!\n\n"
+        if len(user_stats) > 10:
+            message += f"... and {len(user_stats) - 10} more gamers on their journey!\n\n"
         
-        message += "*Score based on actual Hollow Knight achievements: Bosses (50pts), Areas (30pts), Upgrades (25pts), Collectibles (10pts). Keep exploring, gamers!* 🗡️"
+        message += "*Leaderboard based on save file uploads and activity. Upload more .dat files to climb the ranks!* 🗡️"
 
         if not interaction.response.is_done():
             await interaction.response.send_message(message)
@@ -1210,7 +1346,8 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "I'm a gamer who's beaten Hollow Knight and helps track your Hallownest journey!\n\n"
             "**Commands:**\n"
             "• `/hollow-bot progress <text>` - Record your progress\n"
-            "• `/hollow-bot get_progress [user]` - Check someone's latest progress\n"
+            "• `/hollow-bot get_progress [user]` - Check someone's latest save data\n"
+            "• `/hollow-bot save_history [user] [limit]` - View save file history\n"
             "• `/hollow-bot leaderboard` - See who's ahead in the journey\n"
             "• `/hollow-bot rando-talk [0-100]` - View or set my random chatter chance\n"
             "• `/hollow-bot edginess [1-10]` - View or set my edginess level\n"
@@ -1219,6 +1356,7 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "• `/hollow-bot set_reminder_channel` - Set daily recap channel\n"
             "• `/hollow-bot schedule_daily_reminder <time>` - Schedule daily recaps\n"
             "• `/hollow-bot info` - Show this info\n\n"
+            "**Save Files:** Upload .dat files to track detailed progress with stats!\n"
             "**Chat:** Just @ me to talk! I remember our conversations and give gamer advice.\n\n"
             "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
         )
