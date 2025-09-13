@@ -9,6 +9,7 @@ langchain-community>=0.0.20,<1.0.0
 # Database support (for production PostgreSQL and MySQL)
 psycopg2-binary>=2.9.0,<3.0.0
 PyMySQL>=1.0.0,<2.0.0
+cryptography>=41.0.0
 
 # Timezone support
 pytz>=2023.3
