@@ -70,6 +70,29 @@ def is_admin(member: discord.Member) -> bool:
     return perms.administrator or perms.manage_guild or perms.manage_channels
 
 
+async def safe_interaction_response(interaction: discord.Interaction, message: str, ephemeral: bool = False) -> bool:
+    """Safely send a response to a Discord interaction, handling expired interactions gracefully.
+    
+    Returns True if the response was sent successfully, False otherwise.
+    """
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message, ephemeral=ephemeral)
+            return True
+        else:
+            await interaction.followup.send(message, ephemeral=ephemeral)
+            return True
+    except discord.NotFound:
+        log.warning(f"Interaction {interaction.id} not found for response")
+        return False
+    except discord.HTTPException as e:
+        log.warning(f"HTTP error in interaction response: {e}")
+        return False
+    except Exception as e:
+        log.error(f"Unexpected error in interaction response: {e}")
+        return False
+
+
 def _build_updates_context(guild: discord.Guild) -> str:
     """Build context string from today's updates."""
     try:
@@ -147,6 +170,7 @@ def _increment_bot_response_count(guild_id: int) -> None:
     if guild_id not in recent_bot_responses:
         recent_bot_responses[guild_id] = 0
     recent_bot_responses[guild_id] += 1
+    print(f"   📈 Bot response count incremented: {recent_bot_responses[guild_id]} for guild {guild_id}")
 
 
 def _build_system_message(custom_context: str, edginess: int, is_casual_question: bool = False) -> str:
@@ -204,11 +228,16 @@ def _should_respond(
     try:
         # Don't respond if we've already responded too much recently
         if bot_responses_count >= 2:
+            print(f"      🚫 BLOCKED: Too many recent bot responses ({bot_responses_count} >= 2)")
             return False
             
-        return agent_should_respond(previous_messages, current_message, guild_context, author, custom_context)
+        print(f"      🤖 Calling AI agent for decision...")
+        ai_decision = agent_should_respond(previous_messages, current_message, guild_context, author, custom_context)
+        print(f"      🧠 AI Agent result: {ai_decision}")
+        return ai_decision
     except Exception as e:
         log.error(f"Error deciding to respond: {e}")
+        print(f"      ❌ ERROR in AI decision: {e}")
         return False
 
 
@@ -282,6 +311,10 @@ async def on_message(message: discord.Message) -> None:
         mentioned = bot.user in message.mentions
 
         if mentioned:
+            print(f"🔔 MENTION DETECTED - Guild: {message.guild.id} ({message.guild.name})")
+            print(f"   💬 Message: '{message.content[:100]}{'...' if len(message.content) > 100 else ''}'")
+            print(f"   👤 Author: {message.author.display_name} ({message.author.id})")
+            print(f"   ⚡ Bypassing random chance - responding to mention")
             for mention in message.mentions:
                 content = content.replace(f"<@!{mention.id}>", "").replace(
                     f"<@{mention.id}>", ""
@@ -299,6 +332,7 @@ async def on_message(message: discord.Message) -> None:
             edginess = database.get_edginess(message.guild.id)
 
             if PROGRESS_RE.search(content):
+                print(f"📝 PROGRESS UPDATE DETECTED - Processing progress update")
                 await handle_progress(message, content)
                 return
 
@@ -348,6 +382,9 @@ Respond to the message above as HollowBot. Keep your response to 1-2 sentences m
             reply = generate_reply(prompt, edginess=edginess)
             if reply:
                 _increment_bot_response_count(message.guild.id)
+                print(f"✅ MENTION RESPONSE GENERATED - Sending reply: '{reply[:50]}{'...' if len(reply) > 50 else ''}'")
+            else:
+                print(f"❌ NO MENTION RESPONSE GENERATED - Using fallback message")
             await message.reply(
                 reply or "The echoes of Hallownest have been heard, gamer."
             )
@@ -355,21 +392,49 @@ Respond to the message above as HollowBot. Keep your response to 1-2 sentences m
             chance = guild_spontaneous_chances.get(
                 message.guild.id, SPONTANEOUS_RESPONSE_CHANCE
             )
-            if random.random() < chance:
+            random_roll = random.random()
+            
+            # Log the random chance decision
+            print(f"🎲 SPONTANEOUS CHATTER CHECK - Guild: {message.guild.id} ({message.guild.name})")
+            print(f"   📊 Chance: {chance:.2%} | Roll: {random_roll:.3f} | Triggered: {random_roll < chance}")
+            print(f"   💬 Message: '{message.content[:100]}{'...' if len(message.content) > 100 else ''}'")
+            print(f"   👤 Author: {message.author.display_name} ({message.author.id})")
+            
+            if random_roll < chance:
                 log.info("Spontaneous response triggered in guild %s", message.guild.id)
+                print(f"✅ RANDOM CHANCE PASSED - Proceeding to AI decision...")
+                
                 guild_context = _build_updates_context(message.guild)
                 memories = _build_memories_context(message.guild)
                 previous_messages, current_message, bot_responses_count = await _get_recent_messages(message)
                 custom_context = database.get_custom_context(message.guild.id)
                 edginess = database.get_edginess(message.guild.id)
-                if _should_respond(
+                
+                # Log decision factors
+                print(f"   🤖 AI Decision Factors:")
+                print(f"      - Bot responses in recent messages: {bot_responses_count}")
+                print(f"      - Guild context available: {bool(guild_context and guild_context != 'No updates yet today.')}")
+                print(f"      - Custom context: {bool(custom_context)}")
+                print(f"      - Edginess level: {edginess}")
+                print(f"      - Message author: {message.author.display_name}")
+                
+                should_respond = _should_respond(
                     previous_messages, current_message, guild_context, message.author.display_name, custom_context, bot_responses_count
-                ):
+                )
+                
+                print(f"   🧠 AI Agent Decision: {should_respond}")
+                
+                if should_respond:
+                    print(f"✅ AI AGENT APPROVED - Generating response...")
                     focused_context = _build_focused_context(message.guild, current_message)
                     
                     # Check if this is a casual question about the bot
                     casual_bot_questions = ['are you there', 'is hollow bot', 'are you here', 'hello', 'hi', 'what', 'how are you']
                     is_casual_question = any(phrase in current_message.lower() for phrase in casual_bot_questions)
+                    
+                    print(f"   📝 Response Details:")
+                    print(f"      - Casual question: {is_casual_question}")
+                    print(f"      - Focused context: {bool(focused_context and focused_context != 'No recent Hollow Knight updates.')}")
                     
                     # Build properly structured prompt with delimiters
                     system_message = _build_system_message(custom_context, edginess, is_casual_question)
@@ -396,7 +461,19 @@ Respond to the message above as HollowBot. Keep your response to 1-2 sentences m
                     reply = generate_reply(prompt, edginess=edginess)
                     if reply:
                         _increment_bot_response_count(message.guild.id)
+                        print(f"✅ RESPONSE GENERATED - Sending reply: '{reply[:50]}{'...' if len(reply) > 50 else ''}'")
                         await message.reply(reply)
+                    else:
+                        print(f"❌ NO RESPONSE GENERATED - AI returned empty response")
+                else:
+                    print(f"❌ AI AGENT REJECTED - Not responding")
+                    # Log specific rejection reasons
+                    if bot_responses_count >= 2:
+                        print(f"   🚫 Reason: Too many recent bot responses ({bot_responses_count})")
+                    else:
+                        print(f"   🚫 Reason: AI agent determined message not suitable for response")
+            else:
+                print(f"❌ RANDOM CHANCE FAILED - No spontaneous response")
 
 
     except commands.CommandError as e:
@@ -588,11 +665,11 @@ async def slash_record(interaction: discord.Interaction, text: str) -> None:
     """Handle slash command for progress updates."""
     try:
         if not interaction.guild:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
-                    ephemeral=True,
-                )
+            await safe_interaction_response(
+                interaction,
+                "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                ephemeral=True
+            )
             return
 
         # Validate inputs
@@ -624,11 +701,7 @@ async def slash_record(interaction: discord.Interaction, text: str) -> None:
         log.info(f"Verification - last update: {verify}")
 
         reply = _build_progress_reply(interaction.guild, validated_text)
-
-        if not interaction.response.is_done():
-            await interaction.response.send_message(reply)
-        else:
-            await interaction.followup.send(reply)
+        await safe_interaction_response(interaction, reply)
 
         # Check for long absence
         if last:
@@ -639,41 +712,26 @@ async def slash_record(interaction: discord.Interaction, text: str) -> None:
                 )
 
     except ValidationError as e:
-        log.warning(f"Validation error in slash_progress: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!",
-                ephemeral=True,
-            )
+        log.warning(f"Validation error in slash_record: {e}")
+        await safe_interaction_response(
+            interaction,
+            "Gamer, that progress update seems corrupted by the Infection. Try again with a cleaner message!",
+            ephemeral=True
+        )
     except database.DatabaseError as e:
-        log.error(f"Database error in slash_progress: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!",
-                ephemeral=True,
-            )
+        log.error(f"Database error in slash_record: {e}")
+        await safe_interaction_response(
+            interaction,
+            "The echoes of Hallownest are having trouble reaching the chronicle. Try again later, gamer!",
+            ephemeral=True
+        )
     except Exception as e:
-        log.error(f"Unexpected error in slash_progress: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection got to my progress tracking system. But I'll try to remember that, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection got to my progress tracking system. But I'll try to remember that, gamer!",
-                ephemeral=True,
-            )
+        log.error(f"Unexpected error in slash_record: {e}")
+        await safe_interaction_response(
+            interaction,
+            "The Infection got to my progress tracking system. But I'll try to remember that, gamer!",
+            ephemeral=True
+        )
 
 
 @hollow_group.command(
@@ -693,27 +751,22 @@ async def slash_progress_check(
     """Unified progress command that can show latest save or history."""
     try:
         if not interaction.guild:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
-                    ephemeral=True,
-                )
+            await safe_interaction_response(
+                interaction,
+                "Gamer, this command only works in servers. The echoes of Hallownest need a proper gathering place!",
+                ephemeral=True
+            )
             return
 
         # Validate limit
         if limit is None:
             limit = 1
         elif limit < 1 or limit > 20:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Limit must be between 1 and 20, gamer!",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    "Limit must be between 1 and 20, gamer!",
-                    ephemeral=True,
-                )
+            await safe_interaction_response(
+                interaction,
+                "Limit must be between 1 and 20, gamer!",
+                ephemeral=True
+            )
             return
 
         target = user or interaction.user
@@ -725,14 +778,10 @@ async def slash_progress_check(
         progress_history = database.get_player_progress_history(interaction.guild.id, target.id, limit=limit)
         
         if not progress_history:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
-                )
-            else:
-                await interaction.followup.send(
-                    f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
-                )
+            await safe_interaction_response(
+                interaction,
+                f"No save data recorded for {target.display_name} yet. Upload a .dat file to start tracking your Hallownest journey, gamer!"
+            )
             return
 
         # If showing just latest save (limit=1 and not history mode)
@@ -792,23 +841,15 @@ async def slash_progress_check(
             if len(message) > 2000:
                 message = message[:1900] + "\n\n... (message truncated)"
         
-        if not interaction.response.is_done():
-            await interaction.response.send_message(message)
-        else:
-            await interaction.followup.send(message)
+        await safe_interaction_response(interaction, message)
             
     except Exception as e:
         log.error(f"Error in slash_progress_check: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection got to my progress system. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection got to my progress system. Try again later, gamer!",
-                ephemeral=True,
-            )
+        await safe_interaction_response(
+            interaction,
+            "The Infection got to my progress system. Try again later, gamer!",
+            ephemeral=True
+        )
 
 
 @hollow_group.command(name="config", description="Configure bot settings")
@@ -1337,22 +1378,15 @@ async def slash_info(interaction: discord.Interaction) -> None:
             "Ready to chronicle your journey through Hallownest, gamer! 🗡️"
         )
 
-        if not interaction.response.is_done():
-            await interaction.response.send_message(info_message)
-        else:
-            await interaction.followup.send(info_message)
+        await safe_interaction_response(interaction, info_message)
+                
     except Exception as e:
         log.error(f"Error in slash_info: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "The Infection got to my info system. Try again later, gamer!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "The Infection got to my info system. Try again later, gamer!",
-                ephemeral=True,
-            )
+        await safe_interaction_response(
+            interaction, 
+            "The Infection got to my info system. Try again later, gamer!",
+            ephemeral=True
+        )
 
 
 

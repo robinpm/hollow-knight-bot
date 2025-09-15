@@ -414,6 +414,9 @@ class DatabaseManager:
                         soul_vessels INT,
                         mask_shards INT,
                         charms_owned INT,
+                        charms_equipped TEXT,
+                        charm_slots INT,
+                        charm_slots_filled INT,
                         bosses_defeated INT,
                         bosses_defeated_list TEXT,
                         charms_list TEXT,
@@ -735,6 +738,7 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
         # Prepare save stats data
         bosses_list = json.dumps(save_stats.get('bosses_defeated_list', []))
         charms_list = json.dumps(save_stats.get('charms_list', []))
+        charms_equipped_list = json.dumps(save_stats.get('charms_equipped', []))
         
         with _db_manager.get_connection() as conn:
             if _db_manager._use_postgres or _db_manager._use_mysql:
@@ -744,8 +748,9 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                             player_hash, guild_id, user_id, update_text,
                             playtime_hours, completion_percent, geo, health, max_health,
                             deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
-                            charms_owned, bosses_defeated, bosses_defeated_list, charms_list, ts
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            charms_owned, charms_equipped, charm_slots, charm_slots_filled,
+                            bosses_defeated, bosses_defeated_list, charms_list, ts
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         player_hash, str(guild_id), str(user_id), 
                         f"Save file: {save_stats.get('completion_percent', 0)}% complete",
@@ -761,6 +766,9 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                         save_stats.get('soul_vessels', 0),
                         save_stats.get('mask_shards', 0),
                         save_stats.get('charms_owned', 0),
+                        charms_equipped_list,
+                        save_stats.get('charm_slots', 0),
+                        save_stats.get('charm_slots_filled', 0),
                         save_stats.get('bosses_defeated', 0),
                         bosses_list,
                         charms_list,
@@ -773,8 +781,9 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                         player_hash, guild_id, user_id, update_text,
                         playtime_hours, completion_percent, geo, health, max_health,
                         deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
-                        charms_owned, bosses_defeated, bosses_defeated_list, charms_list, ts
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        charms_owned, charms_equipped, charm_slots, charm_slots_filled,
+                        bosses_defeated, bosses_defeated_list, charms_list, ts
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     player_hash, str(guild_id), str(user_id),
                     f"Save file: {save_stats.get('completion_percent', 0)}% complete",
@@ -790,6 +799,9 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                     save_stats.get('soul_vessels', 0),
                     save_stats.get('mask_shards', 0),
                     save_stats.get('charms_owned', 0),
+                    charms_equipped_list,
+                    save_stats.get('charm_slots', 0),
+                    save_stats.get('charm_slots_filled', 0),
                     save_stats.get('bosses_defeated', 0),
                     bosses_list,
                     charms_list,

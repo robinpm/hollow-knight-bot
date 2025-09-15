@@ -47,7 +47,7 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
         # Extract key progress information
         summary = {
             "playtime_hours": round(pd.get("playTime", 0) / 3600, 2),
-            "completion_percent": pd.get("completionPercent", 0),
+            "completion_percent": pd.get("completionPercentage", pd.get("completionPercent", 0)),
             "geo": pd.get("geo", 0),
             "health": pd.get("health", 0),
             "max_health": pd.get("maxHealth", 0),
@@ -55,18 +55,197 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
             "scene": pd.get("respawnScene", "Unknown"),
             "zone": pd.get("mapZone", "Unknown"),
             "nail_upgrades": pd.get("nailUpgrades", 0),
-            "soul_vessels": pd.get("soulVessels", 0),
-            "mask_shards": pd.get("maskShards", 0),
-            "charms_owned": len(pd.get("charms", [])),
-            "bosses_defeated": len(pd.get("bossesDefeated", [])),
-            "bosses_defeated_list": pd.get("bossesDefeated", []),
-            "charms_list": pd.get("charms", []),
+            "soul_vessels": pd.get("vesselFragments", 0),
+            "mask_shards": pd.get("heartPieces", 0),
+            "charms_owned": pd.get("charmsOwned", 0),
+            "charms_equipped": _get_equipped_charms_list(pd),
+            "charm_slots": pd.get("charmSlots", 0),
+            "charm_slots_filled": pd.get("charmSlotsFilled", 0),
+            "bosses_defeated": _count_defeated_bosses(pd),
+            "bosses_defeated_list": _get_defeated_bosses_list(pd),
+            "charms_list": _get_owned_charms_list(pd),
         }
         
         return summary
         
     except Exception as e:
         raise SaveDataError(f"Failed to parse save file: {e}")
+
+
+def _count_defeated_bosses(pd: Dict[str, Any]) -> int:
+    """Count the number of defeated bosses from player data."""
+    boss_flags = [
+        "falseKnightDefeated", "mawlekDefeated", "giantBuzzerDefeated", "giantFlyDefeated",
+        "blocker1Defeated", "blocker2Defeated", "hornet1Defeated", "collectorDefeated",
+        "hornetOutskirtsDefeated", "mageLordDreamDefeated", "infectedKnightDreamDefeated",
+        "whiteDefenderDefeated", "greyPrinceDefeated", "dungDefenderDefeated",
+        "flukeMotherDefeated", "megaBeamMinerDefeated", "mimicSpiderDefeated",
+        "hiveKnightDefeated", "traitorLordDefeated", "obblobbleDefeated",
+        "zoteDefeated", "lobsterLancerDefeated", "whiteDefenderDefeated",
+        "greyPrinceDefeated", "hollowKnightDefeated", "finalBossDefeated",
+        "grimmDefeated", "nightmareGrimmDefeated", "paleLurkerDefeated",
+        "nailBrosDefeated", "paintmasterDefeated", "nailsageDefeated",
+        "hollowKnightPrimeDefeated", "godseekerMaskDefeated"
+    ]
+    
+    count = 0
+    for flag in boss_flags:
+        if pd.get(flag, False):
+            count += 1
+    
+    return count
+
+
+def _get_defeated_bosses_list(pd: Dict[str, Any]) -> list:
+    """Get list of defeated boss names."""
+    boss_mapping = {
+        "falseKnightDefeated": "False Knight",
+        "mawlekDefeated": "Brooding Mawlek", 
+        "giantBuzzerDefeated": "Giant Buzzer",
+        "giantFlyDefeated": "Giant Fly",
+        "blocker1Defeated": "Blocker",
+        "blocker2Defeated": "Blocker",
+        "hornet1Defeated": "Hornet Protector",
+        "collectorDefeated": "The Collector",
+        "hornetOutskirtsDefeated": "Hornet Sentinel",
+        "mageLordDreamDefeated": "Soul Tyrant",
+        "infectedKnightDreamDefeated": "Lost Kin",
+        "whiteDefenderDefeated": "White Defender",
+        "greyPrinceDefeated": "Grey Prince Zote",
+        "dungDefenderDefeated": "Dung Defender",
+        "flukeMotherDefeated": "Flukemarm",
+        "megaBeamMinerDefeated": "Mega Beam Miner",
+        "mimicSpiderDefeated": "Nosk",
+        "hiveKnightDefeated": "Hive Knight",
+        "traitorLordDefeated": "Traitor Lord",
+        "obblobbleDefeated": "Oblobbles",
+        "zoteDefeated": "Grey Prince Zote",
+        "lobsterLancerDefeated": "Oblobbles",
+        "hollowKnightDefeated": "The Hollow Knight",
+        "finalBossDefeated": "The Radiance",
+        "grimmDefeated": "Troupe Master Grimm",
+        "nightmareGrimmDefeated": "Nightmare King Grimm",
+        "paleLurkerDefeated": "Pale Lurker",
+        "nailBrosDefeated": "Nail Brothers",
+        "paintmasterDefeated": "Paintmaster Sheo",
+        "nailsageDefeated": "Nailsage Sly",
+        "hollowKnightPrimeDefeated": "Pure Vessel",
+        "godseekerMaskDefeated": "Absolute Radiance"
+    }
+    
+    defeated = []
+    for flag, name in boss_mapping.items():
+        if pd.get(flag, False):
+            defeated.append(name)
+    
+    return defeated
+
+
+def _get_owned_charms_list(pd: Dict[str, Any]) -> list:
+    """Get list of owned charm names."""
+    charm_mapping = {
+        1: "Gathering Swarm",
+        2: "Wayward Compass", 
+        3: "Grubsong",
+        4: "Stalwart Shell",
+        5: "Baldur Shell",
+        6: "Fury of the Fallen",
+        7: "Quick Focus",
+        8: "Lifeblood Heart",
+        9: "Lifeblood Core",
+        10: "Defender's Crest",
+        11: "Flukenest",
+        12: "Thorns of Agony",
+        13: "Mark of Pride",
+        14: "Steady Body",
+        15: "Heavy Blow",
+        16: "Sharp Shadow",
+        17: "Spore Shroom",
+        18: "Longnail",
+        19: "Shaman Stone",
+        20: "Soul Catcher",
+        21: "Soul Eater",
+        22: "Glowing Womb",
+        23: "Fragile Heart",
+        24: "Fragile Greed",
+        25: "Fragile Strength",
+        26: "Nailmaster's Glory",
+        27: "Joni's Blessing",
+        28: "Shape of Unn",
+        29: "Hiveblood",
+        30: "Dream Wielder",
+        31: "Dashmaster",
+        32: "Quick Slash",
+        33: "Spell Twister",
+        34: "Deep Focus",
+        35: "Grubberfly's Elegy",
+        36: "Kingsoul",
+        37: "Sprintmaster",
+        38: "Dreamshield",
+        39: "Weaversong",
+        40: "Grimmchild"
+    }
+    
+    owned = []
+    for charm_id, name in charm_mapping.items():
+        if pd.get(f"gotCharm_{charm_id}", False):
+            owned.append(name)
+    
+    return owned
+
+
+def _get_equipped_charms_list(pd: Dict[str, Any]) -> list:
+    """Get list of currently equipped charm names."""
+    charm_mapping = {
+        1: "Gathering Swarm",
+        2: "Wayward Compass", 
+        3: "Grubsong",
+        4: "Stalwart Shell",
+        5: "Baldur Shell",
+        6: "Fury of the Fallen",
+        7: "Quick Focus",
+        8: "Lifeblood Heart",
+        9: "Lifeblood Core",
+        10: "Defender's Crest",
+        11: "Flukenest",
+        12: "Thorns of Agony",
+        13: "Mark of Pride",
+        14: "Steady Body",
+        15: "Heavy Blow",
+        16: "Sharp Shadow",
+        17: "Spore Shroom",
+        18: "Longnail",
+        19: "Shaman Stone",
+        20: "Soul Catcher",
+        21: "Soul Eater",
+        22: "Glowing Womb",
+        23: "Fragile Heart",
+        24: "Fragile Greed",
+        25: "Fragile Strength",
+        26: "Nailmaster's Glory",
+        27: "Joni's Blessing",
+        28: "Shape of Unn",
+        29: "Hiveblood",
+        30: "Dream Wielder",
+        31: "Dashmaster",
+        32: "Quick Slash",
+        33: "Spell Twister",
+        34: "Deep Focus",
+        35: "Grubberfly's Elegy",
+        36: "Kingsoul",
+        37: "Sprintmaster",
+        38: "Dreamshield",
+        39: "Weaversong",
+        40: "Grimmchild"
+    }
+    
+    equipped = []
+    equipped_ids = pd.get("equippedCharms", [])
+    for charm_id in equipped_ids:
+        if charm_id in charm_mapping:
+            equipped.append(charm_mapping[charm_id])
+    
+    return equipped
 
 
 def _convert_binary_save_to_json(file_content: bytes) -> Dict[str, Any]:
@@ -233,6 +412,11 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
         emoji = "🏆"
     
     # Format the message - always show detailed stats
+    equipped_text = ""
+    if summary.get('charms_equipped'):
+        equipped_names = ", ".join(summary['charms_equipped'])
+        equipped_text = f"\n🎯 **Equipped**: {equipped_names}"
+    
     message = f"""🎮 **Hollow Knight Progress Analysis** {emoji}
 **Stage**: {stage} ({completion}% complete)
 
@@ -242,7 +426,7 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
 💀 **Deaths**: {summary['deaths']}
 🗡️ **Nail**: +{summary['nail_upgrades']} upgrades
 💙 **Soul**: {summary['soul_vessels']} vessels
-🎭 **Charms**: {summary['charms_owned']} owned
+🎭 **Charms**: {summary['charms_owned']} owned ({summary.get('charm_slots_filled', 0)}/{summary.get('charm_slots', 0)} slots){equipped_text}
 👹 **Bosses**: {summary['bosses_defeated']} defeated
 
 📍 **Current Location**: {summary['scene']} ({summary['zone']})"""
