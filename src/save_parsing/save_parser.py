@@ -44,6 +44,10 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
         # Extract key progress information from the parsed data
         pd = raw.get("playerData", {})
         
+        # Debug: Log available fields to help with version detection
+        log.debug(f"Available root fields: {list(raw.keys())}")
+        log.debug(f"Available playerData fields: {list(pd.keys())}")
+        
         # Extract key progress information
         summary = {
             "playtime_hours": round(pd.get("playTime", 0) / 3600, 2),
@@ -72,7 +76,7 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
             "journal_total": pd.get("journalEntriesTotal", 146),
             "scenes_visited": len(pd.get("scenesVisited", [])),
             "scenes_mapped": len(pd.get("scenesMapped", [])),
-            "save_version": raw.get("version", "Unknown"),
+            "save_version": _get_save_version(raw, pd),
         }
         
         return summary
@@ -102,6 +106,29 @@ def _calculate_soul_vessels(pd: Dict[str, Any]) -> int:
     # Each additional soul vessel adds 33 MP
     extra_mp = max_mp - 99
     return 3 + (extra_mp // 33)
+
+
+def _get_save_version(raw: Dict[str, Any], pd: Dict[str, Any]) -> str:
+    """Get save version from various possible locations in the save file."""
+    # Try different possible field names for version
+    version_fields = [
+        raw.get("version"),
+        raw.get("gameVersion"), 
+        raw.get("saveVersion"),
+        raw.get("game_version"),
+        raw.get("save_version"),
+        pd.get("version"),
+        pd.get("gameVersion"),
+        pd.get("saveVersion"),
+        pd.get("game_version"),
+        pd.get("save_version")
+    ]
+    
+    for version in version_fields:
+        if version and version != "Unknown":
+            return str(version)
+    
+    return "Unknown"
 
 
 def _calculate_nail_upgrades(pd: Dict[str, Any]) -> int:
