@@ -94,13 +94,14 @@ class DatabaseManager:
                     geo INTEGER,
                     health INTEGER,
                     max_health INTEGER,
-                    deaths INTEGER,
                     scene TEXT,
                     zone TEXT,
-                    nail_upgrades INTEGER,
                     soul_vessels INTEGER,
                     mask_shards INTEGER,
                     charms_owned INTEGER,
+                    charms_equipped TEXT,
+                    charm_slots INTEGER,
+                    charm_slots_filled INTEGER,
                     bosses_defeated INTEGER,
                     bosses_defeated_list TEXT,
                     charms_list TEXT,
@@ -197,13 +198,14 @@ class DatabaseManager:
                             geo INTEGER,
                             health INTEGER,
                             max_health INTEGER,
-                            deaths INTEGER,
                             scene TEXT,
                             zone TEXT,
-                            nail_upgrades INTEGER,
                             soul_vessels INTEGER,
                             mask_shards INTEGER,
                             charms_owned INTEGER,
+                            charms_equipped TEXT,
+                            charm_slots INTEGER,
+                            charm_slots_filled INTEGER,
                             bosses_defeated INTEGER,
                             bosses_defeated_list TEXT,
                             charms_list TEXT,
@@ -290,13 +292,14 @@ class DatabaseManager:
                         geo INTEGER,
                         health INTEGER,
                         max_health INTEGER,
-                        deaths INTEGER,
                         scene VARCHAR(255),
                         zone VARCHAR(255),
-                        nail_upgrades INTEGER,
                         soul_vessels INTEGER,
                         mask_shards INTEGER,
                         charms_owned INTEGER,
+                        charms_equipped TEXT,
+                        charm_slots INTEGER,
+                        charm_slots_filled INTEGER,
                         bosses_defeated INTEGER,
                         bosses_defeated_list TEXT,
                         charms_list TEXT,
@@ -407,10 +410,8 @@ class DatabaseManager:
                         geo INT,
                         health INT,
                         max_health INT,
-                        deaths INT,
                         scene VARCHAR(255),
                         zone VARCHAR(255),
-                        nail_upgrades INT,
                         soul_vessels INT,
                         mask_shards INT,
                         charms_owned INT,
@@ -498,13 +499,14 @@ class DatabaseManager:
                             geo INT,
                             health INT,
                             max_health INT,
-                            deaths INT,
                             scene VARCHAR(255),
                             zone VARCHAR(255),
-                            nail_upgrades INT,
                             soul_vessels INT,
                             mask_shards INT,
                             charms_owned INT,
+                            charms_equipped TEXT,
+                            charm_slots INT,
+                            charm_slots_filled INT,
                             bosses_defeated INT,
                             bosses_defeated_list TEXT,
                             charms_list TEXT,
@@ -517,14 +519,16 @@ class DatabaseManager:
                     # Copy existing data to new table with generated player hashes
                     cur.execute("""
                         INSERT INTO progress_new (player_hash, guild_id, user_id, update_text, playtime_hours, 
-                                                completion_percent, geo, health, max_health, deaths, scene, zone,
-                                                nail_upgrades, soul_vessels, mask_shards, charms_owned, 
-                                                bosses_defeated, bosses_defeated_list, charms_list, ts, created_at)
+                                                completion_percent, geo, health, max_health, scene, zone,
+                                                soul_vessels, mask_shards, charms_owned, charms_equipped,
+                                                charm_slots, charm_slots_filled, bosses_defeated, 
+                                                bosses_defeated_list, charms_list, ts, created_at)
                         SELECT 
                             SUBSTRING(SHA2(CONCAT(guild_id, ':', user_id), 256), 1, 16) as player_hash,
                             guild_id, user_id, update_text, playtime_hours, completion_percent, geo, health, 
-                            max_health, deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards, 
-                            charms_owned, bosses_defeated, bosses_defeated_list, charms_list, ts, created_at
+                            max_health, scene, zone, soul_vessels, mask_shards, charms_owned, 
+                            COALESCE(charms_equipped, '[]'), COALESCE(charm_slots, 0), COALESCE(charm_slots_filled, 0),
+                            bosses_defeated, bosses_defeated_list, charms_list, ts, created_at
                         FROM progress
                     """)
                     
@@ -747,10 +751,10 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                         INSERT INTO progress (
                             player_hash, guild_id, user_id, update_text,
                             playtime_hours, completion_percent, geo, health, max_health,
-                            deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                            scene, zone, soul_vessels, mask_shards,
                             charms_owned, charms_equipped, charm_slots, charm_slots_filled,
                             bosses_defeated, bosses_defeated_list, charms_list, ts
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         player_hash, str(guild_id), str(user_id), 
                         f"Save file: {save_stats.get('completion_percent', 0)}% complete",
@@ -759,10 +763,8 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                         save_stats.get('geo', 0),
                         save_stats.get('health', 0),
                         save_stats.get('max_health', 0),
-                        save_stats.get('deaths', 0),
                         save_stats.get('scene', 'Unknown'),
                         save_stats.get('zone', 'Unknown'),
-                        save_stats.get('nail_upgrades', 0),
                         save_stats.get('soul_vessels', 0),
                         save_stats.get('mask_shards', 0),
                         save_stats.get('charms_owned', 0),
@@ -780,10 +782,10 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                     INSERT INTO progress (
                         player_hash, guild_id, user_id, update_text,
                         playtime_hours, completion_percent, geo, health, max_health,
-                        deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                        scene, zone, soul_vessels, mask_shards,
                         charms_owned, charms_equipped, charm_slots, charm_slots_filled,
                         bosses_defeated, bosses_defeated_list, charms_list, ts
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     player_hash, str(guild_id), str(user_id),
                     f"Save file: {save_stats.get('completion_percent', 0)}% complete",
@@ -792,10 +794,8 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
                     save_stats.get('geo', 0),
                     save_stats.get('health', 0),
                     save_stats.get('max_health', 0),
-                    save_stats.get('deaths', 0),
                     save_stats.get('scene', 'Unknown'),
                     save_stats.get('zone', 'Unknown'),
-                    save_stats.get('nail_upgrades', 0),
                     save_stats.get('soul_vessels', 0),
                     save_stats.get('mask_shards', 0),
                     save_stats.get('charms_owned', 0),
@@ -852,7 +852,7 @@ def get_player_progress_history(guild_id: int, user_id: int, limit: int = 10) ->
                     cur.execute("""
                         SELECT 
                             playtime_hours, completion_percent, geo, health, max_health,
-                            deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                            scene, zone, soul_vessels, mask_shards,
                             charms_owned, bosses_defeated, bosses_defeated_list, charms_list,
                             ts, created_at
                         FROM progress 
@@ -865,7 +865,7 @@ def get_player_progress_history(guild_id: int, user_id: int, limit: int = 10) ->
                 cur = conn.execute("""
                     SELECT 
                         playtime_hours, completion_percent, geo, health, max_health,
-                        deaths, scene, zone, nail_upgrades, soul_vessels, mask_shards,
+                        scene, zone, soul_vessels, mask_shards,
                         charms_owned, bosses_defeated, bosses_defeated_list, charms_list,
                         ts, created_at
                     FROM progress 
@@ -883,10 +883,8 @@ def get_player_progress_history(guild_id: int, user_id: int, limit: int = 10) ->
                     'geo': row['geo'],
                     'health': row['health'],
                     'max_health': row['max_health'],
-                    'deaths': row['deaths'],
                     'scene': row['scene'],
                     'zone': row['zone'],
-                    'nail_upgrades': row['nail_upgrades'],
                     'soul_vessels': row['soul_vessels'],
                     'mask_shards': row['mask_shards'],
                     'charms_owned': row['charms_owned'],
@@ -1416,8 +1414,8 @@ def get_user_stats(guild_id: int) -> List[Tuple[str, int, int, int, int]]:
         raise DatabaseError(f"Failed to retrieve user stats: {e}") from e
 
 
-def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, int, int, int, int, int]]:
-    """Get game stats leaderboard. Returns (user_id, completion_percent, playtime_hours, bosses_defeated, geo, deaths, nail_upgrades, charms_owned)."""
+def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, int, int, int]]:
+    """Get game stats leaderboard. Returns (user_id, completion_percent, playtime_hours, bosses_defeated, geo, charms_owned)."""
     try:
         with _db_manager.get_connection() as conn:
             if _db_manager._use_postgres or _db_manager._use_mysql:
@@ -1429,8 +1427,6 @@ def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, i
                             MAX(playtime_hours) as playtime_hours,
                             MAX(bosses_defeated) as bosses_defeated,
                             MAX(geo) as geo,
-                            MAX(deaths) as deaths,
-                            MAX(nail_upgrades) as nail_upgrades,
                             MAX(charms_owned) as charms_owned
                         FROM progress 
                         WHERE guild_id = %s 
@@ -1452,8 +1448,6 @@ def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, i
                         MAX(playtime_hours) as playtime_hours,
                         MAX(bosses_defeated) as bosses_defeated,
                         MAX(geo) as geo,
-                        MAX(deaths) as deaths,
-                        MAX(nail_upgrades) as nail_upgrades,
                         MAX(charms_owned) as charms_owned
                     FROM progress 
                     WHERE guild_id = ? 
@@ -1475,8 +1469,6 @@ def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, i
                     float(row["playtime_hours"] or 0),
                     int(row["bosses_defeated"] or 0),
                     int(row["geo"] or 0),
-                    int(row["deaths"] or 0),
-                    int(row["nail_upgrades"] or 0),
                     int(row["charms_owned"] or 0)
                 ) 
                 for row in rows

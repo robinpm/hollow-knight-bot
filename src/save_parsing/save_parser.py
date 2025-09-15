@@ -47,15 +47,15 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
         # Extract key progress information
         summary = {
             "playtime_hours": round(pd.get("playTime", 0) / 3600, 2),
+            "playtime_seconds": pd.get("playTime", 0),
             "completion_percent": pd.get("completionPercentage", pd.get("completionPercent", 0)),
+            "true_completion": _calculate_true_completion(pd),
             "geo": pd.get("geo", 0),
             "health": pd.get("health", 0),
             "max_health": pd.get("maxHealth", 0),
-            "deaths": pd.get("deathCount", 0),
             "scene": pd.get("respawnScene", "Unknown"),
             "zone": pd.get("mapZone", "Unknown"),
-            "nail_upgrades": pd.get("nailUpgrades", 0),
-            "soul_vessels": pd.get("vesselFragments", 0),
+            "soul_vessels": _calculate_soul_vessels(pd),
             "mask_shards": pd.get("heartPieces", 0),
             "charms_owned": pd.get("charmsOwned", 0),
             "charms_equipped": _get_equipped_charms_list(pd),
@@ -64,12 +64,99 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
             "bosses_defeated": _count_defeated_bosses(pd),
             "bosses_defeated_list": _get_defeated_bosses_list(pd),
             "charms_list": _get_owned_charms_list(pd),
+            "nail_damage": pd.get("nailDamage", 5),
+            "nail_upgrades": _calculate_nail_upgrades(pd),
+            "nail_arts": _get_nail_arts_list(pd),
+            "abilities": _get_abilities_list(pd),
+            "grubs_collected": pd.get("grubsCollected", 0),
+            "journal_entries": pd.get("journalEntriesCompleted", 0),
+            "journal_total": pd.get("journalEntriesTotal", 146),
+            "scenes_visited": len(pd.get("scenesVisited", [])),
+            "scenes_mapped": len(pd.get("scenesMapped", [])),
+            "save_version": raw.get("version", "Unknown"),
         }
         
         return summary
         
     except Exception as e:
         raise SaveDataError(f"Failed to parse save file: {e}")
+
+
+def _calculate_soul_vessels(pd: Dict[str, Any]) -> int:
+    """Calculate the number of soul vessels from maxMP."""
+    max_mp = pd.get("maxMP", 33)  # Base soul capacity is 33
+    if max_mp <= 33:
+        return 0
+    # Each soul vessel adds 33 MP
+    extra_mp = max_mp - 33
+    return extra_mp // 33
+
+
+def _calculate_nail_upgrades(pd: Dict[str, Any]) -> int:
+    """Calculate nail upgrade level from nail damage."""
+    nail_damage = pd.get("nailDamage", 5)
+    # Base nail damage is 5, each upgrade adds 4 damage
+    if nail_damage <= 5:
+        return 0
+    return (nail_damage - 5) // 4
+
+
+def _calculate_true_completion(pd: Dict[str, Any]) -> float:
+    """Calculate true completion percentage based on collectibles."""
+    # This is a simplified calculation - in reality it's more complex
+    grubs = pd.get("grubsCollected", 0)
+    journal_entries = pd.get("journalEntriesCompleted", 0)
+    journal_total = pd.get("journalEntriesTotal", 146)
+    scenes_visited = len(pd.get("scenesVisited", []))
+    scenes_mapped = len(pd.get("scenesMapped", []))
+    
+    # Rough calculation based on available data
+    # This is an approximation - the real calculation is more complex
+    total_possible = 46 + journal_total + 200 + 200  # grubs + journal + scenes + other
+    current = grubs + journal_entries + scenes_visited + scenes_mapped
+    return round((current / total_possible) * 100, 2) if total_possible > 0 else 0
+
+
+def _get_nail_arts_list(pd: Dict[str, Any]) -> list:
+    """Get list of learned nail arts."""
+    nail_arts = []
+    if pd.get("hasCyclone", False):
+        nail_arts.append("Cyclone Slash")
+    if pd.get("hasDashSlash", False):
+        nail_arts.append("Dash Slash")
+    if pd.get("hasUpwardSlash", False):
+        nail_arts.append("Great Slash")
+    return nail_arts
+
+
+def _get_abilities_list(pd: Dict[str, Any]) -> list:
+    """Get list of acquired abilities."""
+    abilities = []
+    if pd.get("canDash", False):
+        abilities.append("Mothwing Cloak")
+    if pd.get("canWallJump", False):
+        abilities.append("Mantis Claw")
+    if pd.get("canSuperDash", False):
+        abilities.append("Crystal Heart")
+    if pd.get("canShadowDash", False):
+        abilities.append("Shade Cloak")
+    if pd.get("hasDoubleJump", False):
+        abilities.append("Monarch Wings")
+    if pd.get("hasDreamNail", False):
+        abilities.append("Dream Nail")
+    if pd.get("hasDreamGate", False):
+        abilities.append("Dream Gate")
+    if pd.get("hasLantern", False):
+        abilities.append("Lumafly Lantern")
+    if pd.get("hasTramPass", False):
+        abilities.append("Tram Pass")
+    if pd.get("hasQuill", False):
+        abilities.append("Quill")
+    if pd.get("hasCityKey", False):
+        abilities.append("City Crest")
+    if pd.get("hasKingsBrand", False):
+        abilities.append("King's Brand")
+    return abilities
 
 
 def _count_defeated_bosses(pd: Dict[str, Any]) -> int:
@@ -411,36 +498,63 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
         stage = "112% Complete"
         emoji = "🏆"
     
-    # Format the message - always show detailed stats
-    equipped_text = ""
+    # Format playtime
+    playtime_seconds = summary.get('playtime_seconds', 0)
+    hours = int(playtime_seconds // 3600)
+    minutes = int((playtime_seconds % 3600) // 60)
+    seconds = int(playtime_seconds % 60)
+    playtime_formatted = f"{hours} h {minutes:02d} min {seconds:02d} sec"
+    
+    # Health display with mask images
+    health_masks = "❤️" * summary['max_health']
+    health_text = f"{health_masks}\n({summary['max_health']})"
+    
+    # Soul display with orb images
+    soul_orbs = "💙" * summary['soul_vessels']
+    soul_text = f"{soul_orbs}\n({summary['soul_vessels']})"
+    
+    # Notches display
+    notches = "🔸" * summary.get('charm_slots', 0)
+    notches_text = f"{notches}\n({summary.get('charm_slots', 0)})"
+    
+    # Bosses list
+    bosses_text = ""
+    if summary.get('bosses_defeated_list'):
+        bosses_text = f"\n**Bosses Defeated**: {', '.join(summary['bosses_defeated_list'])}"
+    
+    # Nail arts
+    nail_arts_text = ""
+    if summary.get('nail_arts'):
+        nail_arts_text = f"\n**Nail Arts**: {', '.join(summary['nail_arts'])}"
+    
+    # Abilities
+    abilities_text = ""
+    if summary.get('abilities'):
+        abilities_text = f"\n**Abilities**: {', '.join(summary['abilities'])}"
+    
+    # Equipment (charms equipped)
+    equipment_text = ""
     if summary.get('charms_equipped'):
-        equipped_names = ", ".join(summary['charms_equipped'])
-        equipped_text = f"\n🎯 **Equipped**: {equipped_names}"
+        equipment_text = f"\n**Equipment**: {', '.join(summary['charms_equipped'])}"
     
     message = f"""🎮 **Hollow Knight Progress Analysis** {emoji}
-**Stage**: {stage} ({completion}% complete)
 
-⏱️ **Playtime**: {summary['playtime_hours']} hours
-💰 **Geo**: {summary['geo']:,}
-❤️ **Health**: {summary['health']}/{summary['max_health']} hearts
-💀 **Deaths**: {summary['deaths']}
-🗡️ **Nail**: +{summary['nail_upgrades']} upgrades
-💙 **Soul**: {summary['soul_vessels']} vessels
-🎭 **Charms**: {summary['charms_owned']} owned ({summary.get('charm_slots_filled', 0)}/{summary.get('charm_slots', 0)} slots){equipped_text}
-👹 **Bosses**: {summary['bosses_defeated']} defeated
+**Health**: {health_text}
+**Soul**: {soul_text}
+**Notches**: {notches_text}
+**Geo**: 💰 {summary['geo']:,}
+**Time Played**: ⏱️ {playtime_formatted}
+**Game Completion**: 📊 {completion}% (out of 112%)
+**True Completion**: 🎯 {summary.get('true_completion', 0)}%
+**Save Version**: 📝 {summary.get('save_version', 'Unknown')}
+
+**Nail**: ⚔️ +{summary.get('nail_upgrades', 0)} upgrades ({summary.get('nail_damage', 5)} damage){nail_arts_text}
+**Charms**: 🎭 {summary['charms_owned']} owned{bosses_text}{abilities_text}{equipment_text}
+
+**Collectibles**: 🐛 {summary.get('grubs_collected', 0)} grubs, 📖 {summary.get('journal_entries', 0)}/{summary.get('journal_total', 146)} journal entries
+**Exploration**: 🗺️ {summary.get('scenes_visited', 0)} scenes visited, {summary.get('scenes_mapped', 0)} mapped
 
 📍 **Current Location**: {summary['scene']} ({summary['zone']})"""
-    
-    # Add some personality based on stats
-    if completion == 0:
-        message += "\n\n🎮 Fresh save detected! Time to start your Hallownest journey, gamer!"
-    elif summary['deaths'] > 100:
-        message += "\n\n💀 Bruh, that's a lot of deaths. The Infection really got to you, huh?"
-    elif summary['deaths'] < 10 and completion > 50:
-        message += "\n\n🔥 Damn, you're good! Barely any deaths and you're already deep in Hallownest!"
-    
-    if summary['geo'] > 10000:
-        message += "\n💰 You're swimming in geo! Time to spend it on some upgrades, gamer."
     
     return message
 
@@ -453,7 +567,6 @@ Analyze this save data and give a short, personalized response (1-2 sentences ma
 
 Playtime: {summary['playtime_hours']} hours
 Completion: {summary['completion_percent']}%
-Deaths: {summary['deaths']}
 Location: {summary['scene']} ({summary['zone']})
 Bosses defeated: {summary['bosses_defeated']}
 Charms owned: {summary['charms_owned']}
