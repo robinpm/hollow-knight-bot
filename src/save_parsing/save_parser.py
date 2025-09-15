@@ -505,37 +505,37 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
     seconds = int(playtime_seconds % 60)
     playtime_formatted = f"{hours} h {minutes:02d} min {seconds:02d} sec"
     
-    # Health display with mask images
+    # Health display with mask images - cleaner format
     health_masks = "❤️" * summary['max_health']
-    health_text = f"{health_masks}\n({summary['max_health']})"
+    health_text = f"{health_masks} ({summary['max_health']})"
     
-    # Soul display with orb images
+    # Soul display with orb images - cleaner format
     soul_orbs = "💙" * summary['soul_vessels']
-    soul_text = f"{soul_orbs}\n({summary['soul_vessels']})"
+    soul_text = f"{soul_orbs} ({summary['soul_vessels']})"
     
-    # Notches display
+    # Notches display - cleaner format
     notches = "🔸" * summary.get('charm_slots', 0)
-    notches_text = f"{notches}\n({summary.get('charm_slots', 0)})"
+    notches_text = f"{notches} ({summary.get('charm_slots', 0)})"
     
     # Bosses list
     bosses_text = ""
     if summary.get('bosses_defeated_list'):
-        bosses_text = f"\n**Bosses Defeated**: {', '.join(summary['bosses_defeated_list'])}"
+        bosses_text = f"**Bosses Defeated**: {', '.join(summary['bosses_defeated_list'])}\n"
     
     # Nail arts
     nail_arts_text = ""
     if summary.get('nail_arts'):
-        nail_arts_text = f"\n**Nail Arts**: {', '.join(summary['nail_arts'])}"
+        nail_arts_text = f"**Nail Arts**: {', '.join(summary['nail_arts'])}\n"
     
     # Abilities
     abilities_text = ""
     if summary.get('abilities'):
-        abilities_text = f"\n**Abilities**: {', '.join(summary['abilities'])}"
+        abilities_text = f"**Abilities**: {', '.join(summary['abilities'])}\n"
     
     # Equipment (charms equipped)
     equipment_text = ""
     if summary.get('charms_equipped'):
-        equipment_text = f"\n**Equipment**: {', '.join(summary['charms_equipped'])}"
+        equipment_text = f"**Equipment**: {', '.join(summary['charms_equipped'])}\n"
     
     message = f"""🎮 **Hollow Knight Progress Analysis** {emoji}
 
@@ -548,9 +548,9 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
 **True Completion**: 🎯 {summary.get('true_completion', 0)}%
 **Save Version**: 📝 {summary.get('save_version', 'Unknown')}
 
-**Nail**: ⚔️ +{summary.get('nail_upgrades', 0)} upgrades ({summary.get('nail_damage', 5)} damage){nail_arts_text}
-**Charms**: 🎭 {summary['charms_owned']} owned{bosses_text}{abilities_text}{equipment_text}
-
+**Nail**: ⚔️ +{summary.get('nail_upgrades', 0)} upgrades ({summary.get('nail_damage', 5)} damage)
+{nail_arts_text}**Charms**: 🎭 {summary['charms_owned']} owned
+{bosses_text}{abilities_text}{equipment_text}
 **Collectibles**: 🐛 {summary.get('grubs_collected', 0)} grubs, 📖 {summary.get('journal_entries', 0)}/{summary.get('journal_total', 146)} journal entries
 **Exploration**: 🗺️ {summary.get('scenes_visited', 0)} scenes visited, {summary.get('scenes_mapped', 0)} mapped
 
