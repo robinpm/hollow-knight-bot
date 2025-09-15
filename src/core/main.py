@@ -64,6 +64,16 @@ guild_spontaneous_chances: Dict[int, float] = {}
 # Track recent bot responses to avoid over-responding
 recent_bot_responses: Dict[int, int] = {}  # guild_id -> count of recent bot responses
 
+# Keywords that override the bot response count limit
+OVERRIDE_KEYWORDS = [
+    'hollow bot', 'hollow-bot', '@hollow-bot', 'hollowbot',
+    'are you there', 'are you here', 'is hollow bot', 'is hollowbot',
+    'hello', 'hi', 'hey', 'yo', 'what', 'how are you',
+    'answer me', 'respond', 'talk to me', 'chat',
+    'hollow knight', 'hallownest', 'knight', 'bug', 'vessel',
+    'progress', 'save', 'achievement', 'boss', 'area'
+]
+
 
 def is_admin(member: discord.Member) -> bool:
     perms = member.guild_permissions
@@ -193,48 +203,119 @@ def _build_system_message(custom_context: str, edginess: int, is_casual_question
     return "\n".join(system_parts)
 
 
-async def _get_recent_messages(message: discord.Message, limit: int = 10) -> tuple[str, str, int]:
+async def _get_recent_messages(message: discord.Message, limit: int = 10) -> tuple[str, str, int, bool]:
     """Return previous messages and current message separately for clear context."""
     previous_lines: List[str] = []
-    bot_responses_count = 0
+    consecutive_bot_responses = 0
+    is_conversation_active = False
     
     try:
+        messages = []
         async for msg in message.channel.history(limit=limit, before=message):
             if not msg.content:
                 continue
-                
-            # Count bot responses to avoid over-responding
+            messages.append(msg)
+        
+        # Process messages in chronological order (oldest first)
+        messages.reverse()
+        
+        # Count consecutive bot responses from the most recent messages
+        for msg in reversed(messages):
             if msg.author.bot:
-                bot_responses_count += 1
+                consecutive_bot_responses += 1
                 # Include bot responses but mark them clearly
                 previous_lines.append(f"[BOT] {msg.content.strip()}")
             else:
+                # Stop counting when we hit a user message
+                break
+                
+        # Check if there's an active conversation (user messages in recent history)
+        user_messages_in_recent = sum(1 for msg in messages[-5:] if not msg.author.bot and msg.content)
+        is_conversation_active = user_messages_in_recent >= 2
+        
+        # Add all messages to context (not just the consecutive bot ones)
+        for msg in messages:
+            if not msg.author.bot:
                 previous_lines.append(f"{msg.author.display_name}: {msg.content.strip()}")
                 
     except Exception as e:
         log.warning(f"Failed to fetch recent messages: {e}")
 
-    previous_lines.reverse()
     previous_messages = "\n".join(previous_lines) if previous_lines else "No previous messages."
     current_message = f"{message.author.display_name}: {message.content.strip()}"
     
-    return previous_messages, current_message, bot_responses_count
+    return previous_messages, current_message, consecutive_bot_responses, is_conversation_active
 
 
 def _should_respond(
-    previous_messages: str, current_message: str, guild_context: str, author: str, custom_context: str, bot_responses_count: int = 0
+    previous_messages: str, current_message: str, guild_context: str, author: str, custom_context: str, 
+    consecutive_bot_responses: int = 0, is_conversation_active: bool = False
 ) -> bool:
     """Use AI agent to decide if the bot should reply to a message."""
     try:
-        # Don't respond if we've already responded too much recently
-        if bot_responses_count >= 2:
-            print(f"      🚫 BLOCKED: Too many recent bot responses ({bot_responses_count} >= 2)")
-            return False
-            
+        # Extract the actual message content (remove author name prefix)
+        message_content = current_message.split(": ", 1)[1] if ": " in current_message else current_message
+        message_lower = message_content.lower()
+        
+        # Check for override keywords
+        has_override_keyword = any(keyword in message_lower for keyword in OVERRIDE_KEYWORDS)
+        
+        # Additional stochastic factors
+        message_length = len(message_content.strip())
+        is_short_message = message_length <= 10
+        is_question = message_content.strip().endswith('?')
+        is_direct_address = any(phrase in message_lower for phrase in ['hollow bot', 'hollow-bot', '@hollow-bot', 'hollowbot'])
+        
+        # Calculate response probability based on various factors
+        response_probability = 0.0
+        
+        # Base probability from AI agent
         print(f"      🤖 Calling AI agent for decision...")
         ai_decision = agent_should_respond(previous_messages, current_message, guild_context, author, custom_context)
         print(f"      🧠 AI Agent result: {ai_decision}")
-        return ai_decision
+        
+        if ai_decision:
+            response_probability = 0.8  # High base probability if AI approves
+        else:
+            response_probability = 0.2  # Low base probability if AI rejects
+        
+        # Override keyword bonus
+        if has_override_keyword:
+            response_probability = min(1.0, response_probability + 0.4)
+            print(f"      🔑 OVERRIDE KEYWORD DETECTED: '{[kw for kw in OVERRIDE_KEYWORDS if kw in message_lower][:3]}'")
+        
+        # Conversation context bonus
+        if is_conversation_active:
+            response_probability = min(1.0, response_probability + 0.2)
+            print(f"      💬 ACTIVE CONVERSATION DETECTED")
+        
+        # Direct address bonus
+        if is_direct_address:
+            response_probability = min(1.0, response_probability + 0.3)
+            print(f"      🎯 DIRECT ADDRESS DETECTED")
+        
+        # Question bonus
+        if is_question:
+            response_probability = min(1.0, response_probability + 0.1)
+            print(f"      ❓ QUESTION DETECTED")
+        
+        # Consecutive response penalty (but allow override)
+        if consecutive_bot_responses >= 2 and not has_override_keyword:
+            response_probability = max(0.1, response_probability - 0.3)
+            print(f"      ⚠️  CONSECUTIVE RESPONSE PENALTY: {consecutive_bot_responses} responses")
+        
+        # Short message bonus (more likely to be casual chat)
+        if is_short_message and not has_override_keyword:
+            response_probability = max(0.1, response_probability - 0.1)
+            print(f"      📏 SHORT MESSAGE PENALTY")
+        
+        # Final decision with some randomness
+        final_decision = response_probability > random.random()
+        
+        print(f"      📊 Response Probability: {response_probability:.2f} | Final Decision: {final_decision}")
+        
+        return final_decision
+        
     except Exception as e:
         log.error(f"Error deciding to respond: {e}")
         print(f"      ❌ ERROR in AI decision: {e}")
@@ -349,7 +430,7 @@ async def on_message(message: discord.Message) -> None:
                 age_str = f"{days}d" if days else f"{hours}h"
                 user_context = f'\nYour last progress: "{text}" ({age_str} ago)'
 
-            previous_messages, current_message, bot_responses_count = await _get_recent_messages(message)
+            previous_messages, current_message, consecutive_bot_responses, is_conversation_active = await _get_recent_messages(message)
             focused_context = _build_focused_context(message.guild, current_message)
             
             # Check if this is a casual question about the bot
@@ -406,20 +487,22 @@ Respond to the message above as HollowBot. Keep your response to 1-2 sentences m
                 
                 guild_context = _build_updates_context(message.guild)
                 memories = _build_memories_context(message.guild)
-                previous_messages, current_message, bot_responses_count = await _get_recent_messages(message)
+                previous_messages, current_message, consecutive_bot_responses, is_conversation_active = await _get_recent_messages(message)
                 custom_context = database.get_custom_context(message.guild.id)
                 edginess = database.get_edginess(message.guild.id)
                 
                 # Log decision factors
                 print(f"   🤖 AI Decision Factors:")
-                print(f"      - Bot responses in recent messages: {bot_responses_count}")
+                print(f"      - Consecutive bot responses: {consecutive_bot_responses}")
+                print(f"      - Active conversation: {is_conversation_active}")
                 print(f"      - Guild context available: {bool(guild_context and guild_context != 'No updates yet today.')}")
                 print(f"      - Custom context: {bool(custom_context)}")
                 print(f"      - Edginess level: {edginess}")
                 print(f"      - Message author: {message.author.display_name}")
                 
                 should_respond = _should_respond(
-                    previous_messages, current_message, guild_context, message.author.display_name, custom_context, bot_responses_count
+                    previous_messages, current_message, guild_context, message.author.display_name, custom_context, 
+                    consecutive_bot_responses, is_conversation_active
                 )
                 
                 print(f"   🧠 AI Agent Decision: {should_respond}")
@@ -468,8 +551,8 @@ Respond to the message above as HollowBot. Keep your response to 1-2 sentences m
                 else:
                     print(f"❌ AI AGENT REJECTED - Not responding")
                     # Log specific rejection reasons
-                    if bot_responses_count >= 2:
-                        print(f"   🚫 Reason: Too many recent bot responses ({bot_responses_count})")
+                    if consecutive_bot_responses >= 2:
+                        print(f"   🚫 Reason: Too many consecutive bot responses ({consecutive_bot_responses})")
                     else:
                         print(f"   🚫 Reason: AI agent determined message not suitable for response")
             else:

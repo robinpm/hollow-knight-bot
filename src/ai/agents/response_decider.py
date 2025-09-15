@@ -55,14 +55,24 @@ Your job is to determine if HollowBot should respond to a message.
 Should HollowBot respond to this message? 
 
 ALWAYS respond if:
-- The message directly mentions HollowBot or @Hollow-Bot
-- The message asks "are you there", "is hollow bot in here", or similar direct questions to the bot
+- The message directly mentions HollowBot, @Hollow-Bot, or "hollow bot"
+- The message asks "are you there", "is hollow bot in here", "hello", "hi", or similar direct questions to the bot
 - The message is about Hollow Knight progress, achievements, or gaming
+- The message contains keywords like "hollow knight", "hallownest", "knight", "bug", "vessel", "progress", "save", "achievement", "boss", "area"
+- The message is a question (ends with "?")
+- The message is part of an active conversation with the bot
+
+CONSIDER responding if:
+- The message is casual but shows interest in the bot
+- The message is short but engaging
+- The user seems to be trying to interact with the bot
 
 NEVER respond if:
-- The message is just casual chat with no mention of HollowBot or Hollow Knight
-- HollowBot has already responded 2+ times in the recent conversation
 - The message is just random chatter with no clear question or mention
+- The message is clearly not directed at the bot and has no Hollow Knight relevance
+- The message is spam or very low quality
+
+Note: The system will handle consecutive response limits and keyword overrides automatically, so focus on the content and context quality.
 
 Answer only "yes" or "no".
 </instructions>"""
