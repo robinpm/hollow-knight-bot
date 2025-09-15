@@ -185,43 +185,25 @@ def _get_abilities_list(pd: Dict[str, Any]) -> list:
 def _count_defeated_bosses(pd: Dict[str, Any]) -> int:
     """Count the number of defeated bosses from player data."""
     boss_flags = [
-        # Main Game Bosses
-        "gruzMotherDefeated", "falseKnightDefeated", "mawlekDefeated", "giantBuzzerDefeated", "giantFlyDefeated",
-        "blocker1Defeated", "blocker2Defeated", "hornet1Defeated", "collectorDefeated",
-        "hornetOutskirtsDefeated", "mageLordDreamDefeated", "infectedKnightDreamDefeated",
-        "whiteDefenderDefeated", "greyPrinceDefeated", "dungDefenderDefeated",
-        "flukeMotherDefeated", "megaBeamMinerDefeated", "mimicSpiderDefeated",
-        "hiveKnightDefeated", "traitorLordDefeated", "obblobbleDefeated",
-        "zoteDefeated", "lobsterLancerDefeated", "hollowKnightDefeated", "finalBossDefeated",
-        "grimmDefeated", "nightmareGrimmDefeated", "paleLurkerDefeated",
-        "nailBrosDefeated", "paintmasterDefeated", "nailsageDefeated",
-        "hollowKnightPrimeDefeated", "godseekerMaskDefeated", "mantisLordsDefeated",
-        
-        # Additional Bosses
-        "massiveMossChargerDefeated", "soulWarriorDefeated", "crystalGuardianDefeated",
-        "enragedGuardianDefeated", "soulMasterDefeated", "watcherKnightsDefeated",
-        "uumuuDefeated", "brokenVesselDefeated", "lostKinDefeated", "soulTyrantDefeated",
-        "noskDefeated", "flukemarmDefeated", "dungDefenderDefeated", "whiteDefenderDefeated",
-        "greyPrinceDefeated", "hollowKnightDefeated", "radianceDefeated",
-        "troupeMasterGrimmDefeated", "nightmareKingGrimmDefeated", "paleLurkerDefeated",
-        "nailBrothersDefeated", "paintmasterSheoDefeated", "nailsageSlyDefeated",
-        "pureVesselDefeated", "absoluteRadianceDefeated",
+        # Main Bosses (each provides 1% completion)
+        "bossGruzMother", "falseKnightDefeated", "hornet1Defeated", "defeatedDungDefender", 
+        "bossBroodingMawlek", "mageLordDefeated", "defeatedMantisLords", "killedBlackKnight", 
+        "collectorDefeated", "defeatedMegaJelly", "hornetOutskirtsDefeated", "killedInfectedKnight", 
+        "killedMimicSpider", "killedTraitorLord", "killedHollowKnight",
         
         # Dream Bosses
-        "failedChampionDefeated", "soulTyrantDefeated", "lostKinDefeated", "whiteDefenderDefeated",
-        "greyPrinceDefeated", "hollowKnightDefeated",
+        "falseKnightDreamDefeated", "mageLordDreamDefeated", "infectedKnightDreamDefeated",
+        "whiteDefenderDefeated", "greyPrinceDefeated",
         
-        # Godmaster Bosses
-        "pureVesselDefeated", "absoluteRadianceDefeated", "sistersOfBattleDefeated",
-        "oblobblesDefeated", "marmuDefeated", "noEyesDefeated", "galienDefeated",
-        "markothDefeated", "xeroDefeated", "gorbDefeated", "elderHuDefeated",
-        "soulWarriorDefeated", "soulMasterDefeated", "soulTyrantDefeated",
-        "crystalGuardianDefeated", "enragedGuardianDefeated", "massiveMossChargerDefeated",
-        "flukemarmDefeated", "dungDefenderDefeated", "whiteDefenderDefeated",
-        "greyPrinceDefeated", "hollowKnightDefeated", "radianceDefeated",
-        "troupeMasterGrimmDefeated", "nightmareKingGrimmDefeated", "paleLurkerDefeated",
-        "nailBrothersDefeated", "paintmasterSheoDefeated", "nailsageSlyDefeated",
-        "pureVesselDefeated", "absoluteRadianceDefeated"
+        # Warrior Dreams (Essence Bosses)
+        "aladarSlugDefeated", "xeroDefeated", "mumCaterpillarDefeated", "elderHuDefeated",
+        "noEyesDefeated", "markothDefeated", "galienDefeated",
+        
+        # Special/Optional Bosses (for 112% completion & achievements)
+        "killedMegaMossCharger", "paleLurkerDefeated",
+        
+        # Repeatable Bosses (tracked by amount/max)
+        "whiteDefenderDefeats", "greyPrinceDefeats"
     ]
     
     count = 0
@@ -235,77 +217,46 @@ def _count_defeated_bosses(pd: Dict[str, Any]) -> int:
 def _get_defeated_bosses_list(pd: Dict[str, Any]) -> list:
     """Get list of defeated boss names."""
     boss_mapping = {
-        # Main Game Bosses
-        "gruzMotherDefeated": "Gruz Mother",
+        # Main Bosses (each provides 1% completion)
+        "bossGruzMother": "Gruz Mother",
         "falseKnightDefeated": "False Knight",
-        "mawlekDefeated": "Brooding Mawlek", 
-        "giantBuzzerDefeated": "Giant Buzzer",
-        "giantFlyDefeated": "Giant Fly",
-        "blocker1Defeated": "Blocker",
-        "blocker2Defeated": "Blocker",
         "hornet1Defeated": "Hornet Protector",
+        "defeatedDungDefender": "Dung Defender",
+        "bossBroodingMawlek": "Brooding Mawlek",
+        "mageLordDefeated": "Soul Master",
+        "defeatedMantisLords": "Mantis Lords",
+        "killedBlackKnight": "Watcher Knights",
         "collectorDefeated": "The Collector",
+        "defeatedMegaJelly": "Uumuu",
         "hornetOutskirtsDefeated": "Hornet Sentinel",
+        "killedInfectedKnight": "Broken Vessel",
+        "killedMimicSpider": "Nosk",
+        "killedTraitorLord": "Traitor Lord",
+        "killedHollowKnight": "Hollow Knight",
+        
+        # Dream Bosses
+        "falseKnightDreamDefeated": "Failed Champion",
         "mageLordDreamDefeated": "Soul Tyrant",
         "infectedKnightDreamDefeated": "Lost Kin",
         "whiteDefenderDefeated": "White Defender",
         "greyPrinceDefeated": "Grey Prince Zote",
-        "dungDefenderDefeated": "Dung Defender",
-        "flukeMotherDefeated": "Flukemarm",
-        "megaBeamMinerDefeated": "Mega Beam Miner",
-        "mimicSpiderDefeated": "Nosk",
-        "hiveKnightDefeated": "Hive Knight",
-        "traitorLordDefeated": "Traitor Lord",
-        "obblobbleDefeated": "Oblobbles",
-        "zoteDefeated": "Grey Prince Zote",
-        "lobsterLancerDefeated": "Oblobbles",
-        "hollowKnightDefeated": "The Hollow Knight",
-        "finalBossDefeated": "The Radiance",
-        "grimmDefeated": "Troupe Master Grimm",
-        "nightmareGrimmDefeated": "Nightmare King Grimm",
-        "paleLurkerDefeated": "Pale Lurker",
-        "nailBrosDefeated": "Nail Brothers",
-        "paintmasterDefeated": "Paintmaster Sheo",
-        "nailsageDefeated": "Nailsage Sly",
-        "hollowKnightPrimeDefeated": "Pure Vessel",
-        "godseekerMaskDefeated": "Absolute Radiance",
-        "mantisLordsDefeated": "Mantis Lords",
         
-        # Additional Bosses
-        "massiveMossChargerDefeated": "Massive Moss Charger",
-        "soulWarriorDefeated": "Soul Warrior",
-        "crystalGuardianDefeated": "Crystal Guardian",
-        "enragedGuardianDefeated": "Enraged Guardian",
-        "soulMasterDefeated": "Soul Master",
-        "watcherKnightsDefeated": "Watcher Knights",
-        "uumuuDefeated": "Uumuu",
-        "brokenVesselDefeated": "Broken Vessel",
-        "lostKinDefeated": "Lost Kin",
-        "soulTyrantDefeated": "Soul Tyrant",
-        "noskDefeated": "Nosk",
-        "flukemarmDefeated": "Flukemarm",
-        "radianceDefeated": "The Radiance",
-        "troupeMasterGrimmDefeated": "Troupe Master Grimm",
-        "nightmareKingGrimmDefeated": "Nightmare King Grimm",
-        "nailBrothersDefeated": "Nail Brothers",
-        "paintmasterSheoDefeated": "Paintmaster Sheo",
-        "nailsageSlyDefeated": "Nailsage Sly",
-        "pureVesselDefeated": "Pure Vessel",
-        "absoluteRadianceDefeated": "Absolute Radiance",
-        
-        # Dream Bosses
-        "failedChampionDefeated": "Failed Champion",
-        
-        # Godmaster Bosses
-        "sistersOfBattleDefeated": "Sisters of Battle",
-        "oblobblesDefeated": "Oblobbles",
-        "marmuDefeated": "Marmu",
-        "noEyesDefeated": "No Eyes",
-        "galienDefeated": "Galien",
-        "markothDefeated": "Markoth",
+        # Warrior Dreams (Essence Bosses)
+        "aladarSlugDefeated": "Gorb",
         "xeroDefeated": "Xero",
-        "gorbDefeated": "Gorb",
-        "elderHuDefeated": "Elder Hu"
+        "mumCaterpillarDefeated": "Marmu",
+        "elderHuDefeated": "Elder Hu",
+        "noEyesDefeated": "No Eyes",
+        "markothDefeated": "Markoth",
+        "galienDefeated": "Galien",
+        
+        # Special/Optional Bosses (for 112% completion & achievements)
+        "killedMegaMossCharger": "Massive Moss Charger",
+        "paleLurkerDefeated": "Pale Lurker",
+        
+        # Repeatable Bosses (tracked by amount/max)
+        "whiteDefenderDefeats": "White Defender (repeatable, up to 5)",
+        "greyPrinceDefeats": "Grey Prince Zote (repeatable, up to 10)"
     }
     
     defeated = []
