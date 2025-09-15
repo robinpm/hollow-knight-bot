@@ -49,10 +49,15 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
         log.debug(f"Available playerData fields: {list(pd.keys())}")
         
         # Extract key progress information
+        playtime_hours = round(pd.get("playTime", 0) / 3600, 2)
+        completion_percent = pd.get("completionPercentage", pd.get("completionPercent", 0))
+        completion_per_hour = round(completion_percent / playtime_hours, 2) if playtime_hours > 0 else 0
+        
         summary = {
-            "playtime_hours": round(pd.get("playTime", 0) / 3600, 2),
+            "playtime_hours": playtime_hours,
             "playtime_seconds": pd.get("playTime", 0),
-            "completion_percent": pd.get("completionPercentage", pd.get("completionPercent", 0)),
+            "completion_percent": completion_percent,
+            "completion_per_hour": completion_per_hour,
             "geo": pd.get("geo", 0),
             "health": pd.get("health", 0),
             "max_health": pd.get("maxHealth", 0),

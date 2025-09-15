@@ -101,7 +101,7 @@ def test_command_structure():
     """Test that the new command structure is properly defined."""
     from core import main
 
-    assert main.BOT_VERSION == "2.3"
+    assert main.BOT_VERSION == "3.0"
     assert hasattr(main, 'bot')
     assert hasattr(main, 'hollow_group')
 
