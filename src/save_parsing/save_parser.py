@@ -49,7 +49,6 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
             "playtime_hours": round(pd.get("playTime", 0) / 3600, 2),
             "playtime_seconds": pd.get("playTime", 0),
             "completion_percent": pd.get("completionPercentage", pd.get("completionPercent", 0)),
-            "true_completion": _calculate_true_completion(pd),
             "geo": pd.get("geo", 0),
             "health": pd.get("health", 0),
             "max_health": pd.get("maxHealth", 0),
@@ -83,13 +82,26 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
 
 
 def _calculate_soul_vessels(pd: Dict[str, Any]) -> int:
-    """Calculate the number of soul vessels from maxMP."""
-    max_mp = pd.get("maxMP", 33)  # Base soul capacity is 33
-    if max_mp <= 33:
-        return 0
-    # Each soul vessel adds 33 MP
-    extra_mp = max_mp - 33
-    return extra_mp // 33
+    """Calculate the number of soul vessels from save data."""
+    # First, try to get the direct soul vessel count
+    direct_count = pd.get("soulVessels", None)
+    if direct_count is not None:
+        return direct_count
+    
+    # Fall back to calculating from maxMP
+    # In Hollow Knight, you start with 3 soul vessels (99 MP base)
+    max_mp = pd.get("maxMP", 99)  # Base soul capacity is 99 (3 vessels)
+    
+    # Soul vessel calculation:
+    # 3 vessels = 99 MP (base)
+    # 4 vessels = 132 MP (99 + 33)
+    # 5 vessels = 165 MP (99 + 33 + 33)
+    # 6 vessels = 198 MP (99 + 33 + 33 + 33)
+    if max_mp <= 99:
+        return 3  # You start with 3 soul vessels
+    # Each additional soul vessel adds 33 MP
+    extra_mp = max_mp - 99
+    return 3 + (extra_mp // 33)
 
 
 def _calculate_nail_upgrades(pd: Dict[str, Any]) -> int:
@@ -99,22 +111,6 @@ def _calculate_nail_upgrades(pd: Dict[str, Any]) -> int:
     if nail_damage <= 5:
         return 0
     return (nail_damage - 5) // 4
-
-
-def _calculate_true_completion(pd: Dict[str, Any]) -> float:
-    """Calculate true completion percentage based on collectibles."""
-    # This is a simplified calculation - in reality it's more complex
-    grubs = pd.get("grubsCollected", 0)
-    journal_entries = pd.get("journalEntriesCompleted", 0)
-    journal_total = pd.get("journalEntriesTotal", 146)
-    scenes_visited = len(pd.get("scenesVisited", []))
-    scenes_mapped = len(pd.get("scenesMapped", []))
-    
-    # Rough calculation based on available data
-    # This is an approximation - the real calculation is more complex
-    total_possible = 46 + journal_total + 200 + 200  # grubs + journal + scenes + other
-    current = grubs + journal_entries + scenes_visited + scenes_mapped
-    return round((current / total_possible) * 100, 2) if total_possible > 0 else 0
 
 
 def _get_nail_arts_list(pd: Dict[str, Any]) -> list:
@@ -162,17 +158,43 @@ def _get_abilities_list(pd: Dict[str, Any]) -> list:
 def _count_defeated_bosses(pd: Dict[str, Any]) -> int:
     """Count the number of defeated bosses from player data."""
     boss_flags = [
-        "falseKnightDefeated", "mawlekDefeated", "giantBuzzerDefeated", "giantFlyDefeated",
+        # Main Game Bosses
+        "gruzMotherDefeated", "falseKnightDefeated", "mawlekDefeated", "giantBuzzerDefeated", "giantFlyDefeated",
         "blocker1Defeated", "blocker2Defeated", "hornet1Defeated", "collectorDefeated",
         "hornetOutskirtsDefeated", "mageLordDreamDefeated", "infectedKnightDreamDefeated",
         "whiteDefenderDefeated", "greyPrinceDefeated", "dungDefenderDefeated",
         "flukeMotherDefeated", "megaBeamMinerDefeated", "mimicSpiderDefeated",
         "hiveKnightDefeated", "traitorLordDefeated", "obblobbleDefeated",
-        "zoteDefeated", "lobsterLancerDefeated", "whiteDefenderDefeated",
-        "greyPrinceDefeated", "hollowKnightDefeated", "finalBossDefeated",
+        "zoteDefeated", "lobsterLancerDefeated", "hollowKnightDefeated", "finalBossDefeated",
         "grimmDefeated", "nightmareGrimmDefeated", "paleLurkerDefeated",
         "nailBrosDefeated", "paintmasterDefeated", "nailsageDefeated",
-        "hollowKnightPrimeDefeated", "godseekerMaskDefeated"
+        "hollowKnightPrimeDefeated", "godseekerMaskDefeated", "mantisLordsDefeated",
+        
+        # Additional Bosses
+        "massiveMossChargerDefeated", "soulWarriorDefeated", "crystalGuardianDefeated",
+        "enragedGuardianDefeated", "soulMasterDefeated", "watcherKnightsDefeated",
+        "uumuuDefeated", "brokenVesselDefeated", "lostKinDefeated", "soulTyrantDefeated",
+        "noskDefeated", "flukemarmDefeated", "dungDefenderDefeated", "whiteDefenderDefeated",
+        "greyPrinceDefeated", "hollowKnightDefeated", "radianceDefeated",
+        "troupeMasterGrimmDefeated", "nightmareKingGrimmDefeated", "paleLurkerDefeated",
+        "nailBrothersDefeated", "paintmasterSheoDefeated", "nailsageSlyDefeated",
+        "pureVesselDefeated", "absoluteRadianceDefeated",
+        
+        # Dream Bosses
+        "failedChampionDefeated", "soulTyrantDefeated", "lostKinDefeated", "whiteDefenderDefeated",
+        "greyPrinceDefeated", "hollowKnightDefeated",
+        
+        # Godmaster Bosses
+        "pureVesselDefeated", "absoluteRadianceDefeated", "sistersOfBattleDefeated",
+        "oblobblesDefeated", "marmuDefeated", "noEyesDefeated", "galienDefeated",
+        "markothDefeated", "xeroDefeated", "gorbDefeated", "elderHuDefeated",
+        "soulWarriorDefeated", "soulMasterDefeated", "soulTyrantDefeated",
+        "crystalGuardianDefeated", "enragedGuardianDefeated", "massiveMossChargerDefeated",
+        "flukemarmDefeated", "dungDefenderDefeated", "whiteDefenderDefeated",
+        "greyPrinceDefeated", "hollowKnightDefeated", "radianceDefeated",
+        "troupeMasterGrimmDefeated", "nightmareKingGrimmDefeated", "paleLurkerDefeated",
+        "nailBrothersDefeated", "paintmasterSheoDefeated", "nailsageSlyDefeated",
+        "pureVesselDefeated", "absoluteRadianceDefeated"
     ]
     
     count = 0
@@ -186,6 +208,8 @@ def _count_defeated_bosses(pd: Dict[str, Any]) -> int:
 def _get_defeated_bosses_list(pd: Dict[str, Any]) -> list:
     """Get list of defeated boss names."""
     boss_mapping = {
+        # Main Game Bosses
+        "gruzMotherDefeated": "Gruz Mother",
         "falseKnightDefeated": "False Knight",
         "mawlekDefeated": "Brooding Mawlek", 
         "giantBuzzerDefeated": "Giant Buzzer",
@@ -217,7 +241,44 @@ def _get_defeated_bosses_list(pd: Dict[str, Any]) -> list:
         "paintmasterDefeated": "Paintmaster Sheo",
         "nailsageDefeated": "Nailsage Sly",
         "hollowKnightPrimeDefeated": "Pure Vessel",
-        "godseekerMaskDefeated": "Absolute Radiance"
+        "godseekerMaskDefeated": "Absolute Radiance",
+        "mantisLordsDefeated": "Mantis Lords",
+        
+        # Additional Bosses
+        "massiveMossChargerDefeated": "Massive Moss Charger",
+        "soulWarriorDefeated": "Soul Warrior",
+        "crystalGuardianDefeated": "Crystal Guardian",
+        "enragedGuardianDefeated": "Enraged Guardian",
+        "soulMasterDefeated": "Soul Master",
+        "watcherKnightsDefeated": "Watcher Knights",
+        "uumuuDefeated": "Uumuu",
+        "brokenVesselDefeated": "Broken Vessel",
+        "lostKinDefeated": "Lost Kin",
+        "soulTyrantDefeated": "Soul Tyrant",
+        "noskDefeated": "Nosk",
+        "flukemarmDefeated": "Flukemarm",
+        "radianceDefeated": "The Radiance",
+        "troupeMasterGrimmDefeated": "Troupe Master Grimm",
+        "nightmareKingGrimmDefeated": "Nightmare King Grimm",
+        "nailBrothersDefeated": "Nail Brothers",
+        "paintmasterSheoDefeated": "Paintmaster Sheo",
+        "nailsageSlyDefeated": "Nailsage Sly",
+        "pureVesselDefeated": "Pure Vessel",
+        "absoluteRadianceDefeated": "Absolute Radiance",
+        
+        # Dream Bosses
+        "failedChampionDefeated": "Failed Champion",
+        
+        # Godmaster Bosses
+        "sistersOfBattleDefeated": "Sisters of Battle",
+        "oblobblesDefeated": "Oblobbles",
+        "marmuDefeated": "Marmu",
+        "noEyesDefeated": "No Eyes",
+        "galienDefeated": "Galien",
+        "markothDefeated": "Markoth",
+        "xeroDefeated": "Xero",
+        "gorbDefeated": "Gorb",
+        "elderHuDefeated": "Elder Hu"
     }
     
     defeated = []
@@ -545,7 +606,6 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
 **Geo**: 💰 {summary['geo']:,}
 **Time Played**: ⏱️ {playtime_formatted}
 **Game Completion**: 📊 {completion}% (out of 112%)
-**True Completion**: 🎯 {summary.get('true_completion', 0)}%
 **Save Version**: 📝 {summary.get('save_version', 'Unknown')}
 
 **Nail**: ⚔️ +{summary.get('nail_upgrades', 0)} upgrades ({summary.get('nail_damage', 5)} damage)
