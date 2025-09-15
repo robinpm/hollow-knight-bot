@@ -588,7 +588,7 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
 **Notches**: {notches_text}
 **Geo**: 💰 {summary['geo']:,}
 **Time Played**: ⏱️ {playtime_formatted}
-**Game Completion**: 📊 {completion}% (out of 112%)
+**Game Completion**: 📊 {completion}% (out of 112%) - {summary.get('completion_per_hour', 0)}%/hr
 **Save Version**: 📝 {summary.get('save_version', 'Unknown')}
 
 **Nail**: ⚔️ +{summary.get('nail_upgrades', 0)} upgrades ({summary.get('nail_damage', 5)} damage)
