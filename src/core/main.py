@@ -660,7 +660,7 @@ async def handle_progress_save_data(message: discord.Message, attachment: discor
         )
         
         # Generate memory from the save data
-        progress_text = f"Uploaded save data: {summary['completion_percent']}% complete, {summary['playtime_hours']}h playtime, {summary['deaths']} deaths"
+        progress_text = f"Uploaded save data: {summary['completion_percent']}% complete, {summary['playtime_hours']}h playtime, {summary.get('completion_per_hour', 0)}%/hr"
         mem = generate_memory(progress_text)
         if mem:
             database.add_memory(message.guild.id, mem)
@@ -879,30 +879,35 @@ async def slash_progress_check(
             
             # Format the save data summary
             completion = latest_save['completion_percent']
+            completion_per_hour = latest_save.get('completion_per_hour', 0)
             playtime = latest_save['playtime_hours']
             geo = latest_save['geo']
             health = latest_save['health']
             max_health = latest_save['max_health']
-            deaths = latest_save['deaths']
             scene = latest_save['scene']
             zone = latest_save['zone']
-            nail_upgrades = latest_save['nail_upgrades']
+            nail_upgrades = latest_save.get('nail_upgrades', 0)
             soul_vessels = latest_save['soul_vessels']
             mask_shards = latest_save['mask_shards']
             charms_owned = latest_save['charms_owned']
             bosses_defeated = latest_save['bosses_defeated']
+            journal_entries = latest_save.get('journal_entries', 0)
+            journal_total = latest_save.get('journal_total', 146)
+            scenes_visited = latest_save.get('scenes_visited', 0)
+            scenes_mapped = latest_save.get('scenes_mapped', 0)
             
             # Build the response message
             message = f"📜 **Latest Save Data for {target.display_name}** ({age_str} ago)\n\n"
-            message += f"🎮 **Progress**: {completion or 0}% complete\n"
+            message += f"🎮 **Progress**: {completion or 0}% complete - {completion_per_hour:.1f}%/hr\n"
             message += f"⏱️ **Playtime**: {(playtime if playtime is not None else 0):.2f} hours\n"
             message += f"💰 **Geo**: {(geo if geo is not None else 0):,}\n"
             message += f"❤️ **Health**: {health or 0}/{max_health or 0} hearts\n"
-            message += f"💀 **Deaths**: {deaths or 0}\n"
-            message += f"🗡️ **Nail**: +{nail_upgrades or 0} upgrades\n"
+            message += f"🗡️ **Nail**: +{nail_upgrades} upgrades\n"
             message += f"💙 **Soul**: {soul_vessels or 0} vessels\n"
             message += f"🎭 **Charms**: {charms_owned or 0} owned\n"
             message += f"👹 **Bosses**: {bosses_defeated or 0} defeated\n"
+            message += f"📖 **Journal**: {journal_entries}/{journal_total} entries\n"
+            message += f"🗺️ **Exploration**: {scenes_visited} visited, {scenes_mapped} mapped\n"
             message += f"📍 **Location**: {scene or 'Unknown'} ({zone or 'Unknown'})"
         else:
             # Show history
@@ -915,9 +920,10 @@ async def slash_progress_check(
                 hours = age_sec // 3600
                 age_str = f"{days}d" if days else f"{hours}h"
                 
+                completion_per_hour = save.get('completion_per_hour', 0)
                 message += f"**#{i}** ({age_str} ago)\n"
-                message += f"🎮 {save['completion_percent'] or 0}% complete | ⏱️ {(save['playtime_hours'] if save['playtime_hours'] is not None else 0):.1f}h | 💰 {(save['geo'] if save['geo'] is not None else 0):,} geo\n"
-                message += f"❤️ {save['health'] or 0}/{save['max_health'] or 0} hearts | 💀 {save['deaths'] or 0} deaths | 👹 {save['bosses_defeated'] or 0} bosses\n"
+                message += f"🎮 {save['completion_percent'] or 0}% complete - {completion_per_hour:.1f}%/hr | ⏱️ {(save['playtime_hours'] if save['playtime_hours'] is not None else 0):.1f}h | 💰 {(save['geo'] if save['geo'] is not None else 0):,} geo\n"
+                message += f"❤️ {save['health'] or 0}/{save['max_health'] or 0} hearts | 👹 {save['bosses_defeated'] or 0} bosses\n"
                 message += f"📍 {save['scene'] or 'Unknown'} ({save['zone'] or 'Unknown'})\n\n"
             
             # Truncate if too long
@@ -1362,7 +1368,7 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
         # Build leaderboard message
         message = "🏆 **Hallownest Game Stats Leaderboard** 🏆\n\n"
         
-        for i, (user_id, completion_percent, playtime_hours, bosses_defeated, geo, deaths, nail_upgrades, charms_owned) in enumerate(game_stats[:10]):
+        for i, (user_id, completion_percent, playtime_hours, bosses_defeated, geo, nail_upgrades, charms_owned) in enumerate(game_stats[:10]):
             try:
                 user = interaction.guild.get_member(int(user_id))
                 if user:
@@ -1396,7 +1402,7 @@ async def slash_leaderboard(interaction: discord.Interaction) -> None:
             
             message += f"{rank_emoji} **{display_name}** - {stage}\n"
             message += f"   🎮 {completion_percent}% complete | ⏱️ {playtime_hours:.1f}h | 👹 {bosses_defeated} bosses\n"
-            message += f"   💰 {geo:,} geo | 💀 {deaths} deaths | 🗡️ +{nail_upgrades} nail | 🎭 {charms_owned} charms\n\n"
+            message += f"   💰 {geo:,} geo | 🗡️ +{nail_upgrades} nail | 🎭 {charms_owned} charms\n\n"
         
         if len(game_stats) > 10:
             message += f"... and {len(game_stats) - 10} more gamers on their journey!\n\n"
