@@ -95,6 +95,7 @@ class DatabaseManager:
                     geo INTEGER,
                     health INTEGER,
                     max_health INTEGER,
+                    deaths INTEGER DEFAULT 0,
                     scene TEXT,
                     zone TEXT,
                     soul_vessels INTEGER,
@@ -202,9 +203,11 @@ class DatabaseManager:
                             update_text TEXT,
                             playtime_hours REAL,
                             completion_percent REAL,
+                            completion_per_hour REAL,
                             geo INTEGER,
                             health INTEGER,
                             max_health INTEGER,
+                            deaths INTEGER,
                             scene TEXT,
                             zone TEXT,
                             soul_vessels INTEGER,
@@ -216,6 +219,12 @@ class DatabaseManager:
                             bosses_defeated INTEGER,
                             bosses_defeated_list TEXT,
                             charms_list TEXT,
+                            nail_damage INTEGER,
+                            nail_upgrades INTEGER,
+                            journal_entries INTEGER,
+                            journal_total INTEGER,
+                            scenes_visited INTEGER,
+                            scenes_mapped INTEGER,
                             ts INTEGER NOT NULL,
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
@@ -249,35 +258,18 @@ class DatabaseManager:
             except sqlite3.OperationalError as e:
                 log.warning(f"Migration not needed or failed: {e}")
 
-            # Migration: Remove deaths field if it exists
+            # Migration: Ensure deaths column exists
             try:
                 # Check if deaths column exists
                 cursor = conn.execute("PRAGMA table_info(progress)")
                 columns = [column[1] for column in cursor.fetchall()]
-                
-                if 'deaths' in columns:
-                    log.info("Removing deaths column from progress table")
-                    # Create new table without deaths column
-                    conn.execute("""
-                        CREATE TABLE progress_temp AS 
-                        SELECT id, player_hash, guild_id, user_id, update_text,
-                               playtime_hours, completion_percent, completion_per_hour,
-                               geo, health, max_health, scene, zone, soul_vessels,
-                               mask_shards, charms_owned, charms_equipped, charm_slots,
-                               charm_slots_filled, bosses_defeated, bosses_defeated_list,
-                               charms_list, nail_damage, nail_upgrades, journal_entries,
-                               journal_total, scenes_visited, scenes_mapped, ts, created_at
-                        FROM progress
-                    """)
-                    
-                    # Drop old table and rename new one
-                    conn.execute("DROP TABLE progress")
-                    conn.execute("ALTER TABLE progress_temp RENAME TO progress")
-                    
-                    log.info("Successfully removed deaths column from progress table")
-                    
+
+                if 'deaths' not in columns:
+                    log.info("Adding deaths column to progress table")
+                    conn.execute("ALTER TABLE progress ADD COLUMN deaths INTEGER DEFAULT 0")
+
             except sqlite3.OperationalError as e:
-                log.warning(f"Deaths column migration not needed or failed: {e}")
+                log.warning(f"Deaths column migration failed or not needed: {e}")
 
             # Create indexes
             conn.execute(
@@ -330,6 +322,7 @@ class DatabaseManager:
                         geo INTEGER,
                         health INTEGER,
                         max_health INTEGER,
+                        deaths INTEGER DEFAULT 0,
                         scene VARCHAR(255),
                         zone VARCHAR(255),
                         soul_vessels INTEGER,
@@ -420,6 +413,7 @@ class DatabaseManager:
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_player_hash ON progress(player_hash)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_guild_user ON progress(guild_id, user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_progress_ts ON progress(ts)")
+                cur.execute("ALTER TABLE progress ADD COLUMN IF NOT EXISTS deaths INTEGER DEFAULT 0")
                 conn.commit()
                 log.info("PostgreSQL database initialized successfully")
     
@@ -455,6 +449,7 @@ class DatabaseManager:
                         geo INT,
                         health INT,
                         max_health INT,
+                        deaths INT DEFAULT 0,
                         scene VARCHAR(255),
                         zone VARCHAR(255),
                         soul_vessels INT,
@@ -547,9 +542,11 @@ class DatabaseManager:
                             update_text TEXT,
                             playtime_hours FLOAT,
                             completion_percent FLOAT,
+                            completion_per_hour FLOAT,
                             geo INT,
                             health INT,
                             max_health INT,
+                            deaths INT,
                             scene VARCHAR(255),
                             zone VARCHAR(255),
                             soul_vessels INT,
@@ -561,6 +558,12 @@ class DatabaseManager:
                             bosses_defeated INT,
                             bosses_defeated_list TEXT,
                             charms_list TEXT,
+                            nail_damage INT,
+                            nail_upgrades INT,
+                            journal_entries INT,
+                            journal_total INT,
+                            scenes_visited INT,
+                            scenes_mapped INT,
                             ts BIGINT NOT NULL,
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                             FOREIGN KEY (player_hash) REFERENCES players(player_hash)
@@ -569,15 +572,15 @@ class DatabaseManager:
                     
                     # Copy existing data to new table with generated player hashes
                     cur.execute("""
-                        INSERT INTO progress_new (player_hash, guild_id, user_id, update_text, playtime_hours, 
+                        INSERT INTO progress_new (player_hash, guild_id, user_id, update_text, playtime_hours,
                                                 completion_percent, geo, health, max_health, scene, zone,
                                                 soul_vessels, mask_shards, charms_owned, charms_equipped,
-                                                charm_slots, charm_slots_filled, bosses_defeated, 
+                                                charm_slots, charm_slots_filled, bosses_defeated,
                                                 bosses_defeated_list, charms_list, ts, created_at)
-                        SELECT 
+                        SELECT
                             SUBSTRING(SHA2(CONCAT(guild_id, ':', user_id), 256), 1, 16) as player_hash,
-                            guild_id, user_id, update_text, playtime_hours, completion_percent, geo, health, 
-                            max_health, scene, zone, soul_vessels, mask_shards, charms_owned, 
+                            guild_id, user_id, update_text, playtime_hours, completion_percent, geo, health,
+                            max_health, scene, zone, soul_vessels, mask_shards, charms_owned,
                             COALESCE(charms_equipped, '[]'), COALESCE(charm_slots, 0), COALESCE(charm_slots_filled, 0),
                             bosses_defeated, bosses_defeated_list, charms_list, ts, created_at
                         FROM progress
@@ -620,6 +623,10 @@ class DatabaseManager:
                     cur.execute("CREATE INDEX idx_progress_ts ON progress(ts)")
                 except:
                     pass  # Index already exists
+                try:
+                    cur.execute("ALTER TABLE progress ADD COLUMN deaths INT DEFAULT 0")
+                except:
+                    pass  # Column already exists
                 conn.commit()
                 log.info("MySQL database initialized successfully")
     
@@ -791,91 +798,81 @@ def add_save_progress(guild_id: int, user_id: int, display_name: str, save_stats
         player_hash = get_or_create_player(guild_id, user_id, display_name)
         
         # Prepare save stats data
-        bosses_list = json.dumps(save_stats.get('bosses_defeated_list', []))
-        charms_list = json.dumps(save_stats.get('charms_list', []))
+        bosses_list = json.dumps(
+            save_stats.get('bosses_defeated_list_actual', save_stats.get('bosses_defeated_list', []))
+        )
+        charms_list = json.dumps(
+            save_stats.get('charms_list_actual', save_stats.get('charms_list', []))
+        )
         charms_equipped_list = json.dumps(save_stats.get('charms_equipped', []))
         
         with _db_manager.get_connection() as conn:
+            values = (
+                player_hash,
+                str(guild_id),
+                str(user_id),
+                f"Save file: {save_stats.get('completion_percent', 0)}% complete",
+                save_stats.get('playtime_hours', 0),
+                save_stats.get('completion_percent', 0),
+                save_stats.get('completion_per_hour', 0),
+                save_stats.get('geo', 0),
+                save_stats.get('health', 0),
+                save_stats.get('max_health', 0),
+                save_stats.get('deaths', 0),
+                save_stats.get('scene', 'Unknown'),
+                save_stats.get('zone', 'Unknown'),
+                save_stats.get('total_soul_vessels', save_stats.get('soul_vessels', 0)),
+                save_stats.get('mask_shards', 0),
+                save_stats.get('charms_owned_actual', save_stats.get('charms_owned', 0)),
+                charms_equipped_list,
+                save_stats.get('charm_slots', 0),
+                save_stats.get('charm_slots_filled', 0),
+                save_stats.get('bosses_defeated_actual', save_stats.get('bosses_defeated', 0)),
+                bosses_list,
+                charms_list,
+                save_stats.get('nail_damage', 5),
+                save_stats.get('nail_upgrades', 0),
+                save_stats.get('journal_entries', 0),
+                save_stats.get('journal_total', 146),
+                save_stats.get('scenes_visited', 0),
+                save_stats.get('scenes_mapped', 0),
+                ts,
+            )
+
             if _db_manager._use_postgres or _db_manager._use_mysql:
+                placeholders = ", ".join(["%s"] * len(values))
                 with conn.cursor() as cur:
-                    cur.execute("""
+                    cur.execute(
+                        f"""
                         INSERT INTO progress (
                             player_hash, guild_id, user_id, update_text,
-                            playtime_hours, completion_percent, completion_per_hour, geo, health, max_health,
+                            playtime_hours, completion_percent, completion_per_hour, geo, health, max_health, deaths,
                             scene, zone, soul_vessels, mask_shards,
                             charms_owned, charms_equipped, charm_slots, charm_slots_filled,
                             bosses_defeated, bosses_defeated_list, charms_list,
                             nail_damage, nail_upgrades, journal_entries, journal_total,
                             scenes_visited, scenes_mapped, ts
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        player_hash, str(guild_id), str(user_id),
-                        f"Save file: {save_stats.get('completion_percent', 0)}% complete",
-                        save_stats.get('playtime_hours', 0),
-                        save_stats.get('completion_percent', 0),
-                        save_stats.get('completion_per_hour', 0),
-                        save_stats.get('geo', 0),
-                        save_stats.get('health', 0),
-                        save_stats.get('max_health', 0),
-                        save_stats.get('scene', 'Unknown'),
-                        save_stats.get('zone', 'Unknown'),
-                        save_stats.get('soul_vessels', 0),
-                        save_stats.get('mask_shards', 0),
-                        save_stats.get('charms_owned', 0),
-                        charms_equipped_list,
-                        save_stats.get('charm_slots', 0),
-                        save_stats.get('charm_slots_filled', 0),
-                        save_stats.get('bosses_defeated', 0),
-                        bosses_list,
-                        charms_list,
-                        save_stats.get('nail_damage', 5),
-                        save_stats.get('nail_upgrades', 0),
-                        save_stats.get('journal_entries', 0),
-                        save_stats.get('journal_total', 146),
-                        save_stats.get('scenes_visited', 0),
-                        save_stats.get('scenes_mapped', 0),
-                        ts
-                    ))
+                        ) VALUES ({placeholders})
+                        """,
+                        values,
+                    )
                     conn.commit()
             else:
-                conn.execute("""
+                placeholders = ", ".join(["?"] * len(values))
+                conn.execute(
+                    f"""
                     INSERT INTO progress (
                         player_hash, guild_id, user_id, update_text,
-                        playtime_hours, completion_percent, completion_per_hour, geo, health, max_health,
+                        playtime_hours, completion_percent, completion_per_hour, geo, health, max_health, deaths,
                         scene, zone, soul_vessels, mask_shards,
                         charms_owned, charms_equipped, charm_slots, charm_slots_filled,
                         bosses_defeated, bosses_defeated_list, charms_list,
                         nail_damage, nail_upgrades, journal_entries, journal_total,
                         scenes_visited, scenes_mapped, ts
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    player_hash, str(guild_id), str(user_id),
-                    f"Save file: {save_stats.get('completion_percent', 0)}% complete",
-                    save_stats.get('playtime_hours', 0),
-                    save_stats.get('completion_percent', 0),
-                    save_stats.get('completion_per_hour', 0),
-                    save_stats.get('geo', 0),
-                    save_stats.get('health', 0),
-                    save_stats.get('max_health', 0),
-                    save_stats.get('scene', 'Unknown'),
-                    save_stats.get('zone', 'Unknown'),
-                    save_stats.get('soul_vessels', 0),
-                    save_stats.get('mask_shards', 0),
-                    save_stats.get('charms_owned', 0),
-                    charms_equipped_list,
-                    save_stats.get('charm_slots', 0),
-                    save_stats.get('charm_slots_filled', 0),
-                    save_stats.get('bosses_defeated', 0),
-                    bosses_list,
-                    charms_list,
-                    save_stats.get('nail_damage', 5),
-                    save_stats.get('nail_upgrades', 0),
-                    save_stats.get('journal_entries', 0),
-                    save_stats.get('journal_total', 146),
-                    save_stats.get('scenes_visited', 0),
-                    save_stats.get('scenes_mapped', 0),
-                    ts
-                ))
+                    ) VALUES ({placeholders})
+                    """,
+                    values,
+                )
                 conn.commit()
         
         log.info(f"Added save progress for player {player_hash}: {save_stats.get('completion_percent', 0)}% complete")
@@ -919,47 +916,94 @@ def get_player_progress_history(guild_id: int, user_id: int, limit: int = 10) ->
             if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT 
-                            playtime_hours, completion_percent, geo, health, max_health,
+                        SELECT
+                            playtime_hours, completion_percent, completion_per_hour, geo, health, max_health,
+                            deaths,
                             scene, zone, soul_vessels, mask_shards,
-                            charms_owned, bosses_defeated, bosses_defeated_list, charms_list,
+                            charms_owned, charms_equipped, bosses_defeated, bosses_defeated_list, charms_list,
+                            nail_damage, nail_upgrades,
+                            journal_entries, journal_total,
+                            scenes_visited, scenes_mapped,
                             ts, created_at
-                        FROM progress 
-                        WHERE player_hash = %s 
-                        ORDER BY ts DESC 
+                        FROM progress
+                        WHERE player_hash = %s
+                        ORDER BY ts DESC
                         LIMIT %s
                     """, (player_hash, limit))
                     rows = cur.fetchall()
             else:
                 cur = conn.execute("""
-                    SELECT 
-                        playtime_hours, completion_percent, geo, health, max_health,
+                    SELECT
+                        playtime_hours, completion_percent, completion_per_hour, geo, health, max_health,
+                        deaths,
                         scene, zone, soul_vessels, mask_shards,
-                        charms_owned, bosses_defeated, bosses_defeated_list, charms_list,
+                        charms_owned, charms_equipped, bosses_defeated, bosses_defeated_list, charms_list,
+                        nail_damage, nail_upgrades,
+                        journal_entries, journal_total,
+                        scenes_visited, scenes_mapped,
                         ts, created_at
-                    FROM progress 
-                    WHERE player_hash = ? 
-                    ORDER BY ts DESC 
+                    FROM progress
+                    WHERE player_hash = ?
+                    ORDER BY ts DESC
                     LIMIT ?
                 """, (player_hash, limit))
                 rows = cur.fetchall()
             
             progress_history = []
             for row in rows:
+                row_keys = set(row.keys()) if hasattr(row, 'keys') else set()
+
+                bosses_defeated_list = row['bosses_defeated_list'] if 'bosses_defeated_list' in row_keys else None
+                if bosses_defeated_list and isinstance(bosses_defeated_list, str):
+                    try:
+                        bosses_defeated_list = json.loads(bosses_defeated_list)
+                    except json.JSONDecodeError:
+                        bosses_defeated_list = []
+                elif not bosses_defeated_list:
+                    bosses_defeated_list = []
+
+                charms_list = row['charms_list'] if 'charms_list' in row_keys else None
+                if charms_list and isinstance(charms_list, str):
+                    try:
+                        charms_list = json.loads(charms_list)
+                    except json.JSONDecodeError:
+                        charms_list = []
+                elif not charms_list:
+                    charms_list = []
+
+                charms_equipped = row['charms_equipped'] if 'charms_equipped' in row_keys else None
+                if charms_equipped and isinstance(charms_equipped, str):
+                    try:
+                        charms_equipped = json.loads(charms_equipped)
+                    except json.JSONDecodeError:
+                        charms_equipped = []
+                elif not charms_equipped:
+                    charms_equipped = []
+
                 progress_entry = {
                     'playtime_hours': row['playtime_hours'],
                     'completion_percent': row['completion_percent'],
+                    'completion_per_hour': row['completion_per_hour'] if 'completion_per_hour' in row_keys and row['completion_per_hour'] is not None else 0,
                     'geo': row['geo'],
                     'health': row['health'],
                     'max_health': row['max_health'],
+                    'deaths': row['deaths'] if 'deaths' in row_keys and row['deaths'] is not None else 0,
                     'scene': row['scene'],
                     'zone': row['zone'],
                     'soul_vessels': row['soul_vessels'],
+                    'total_soul_vessels': row['soul_vessels'],
                     'mask_shards': row['mask_shards'],
                     'charms_owned': row['charms_owned'],
+                    'charms_equipped': charms_equipped,
                     'bosses_defeated': row['bosses_defeated'],
-                    'bosses_defeated_list': json.loads(row['bosses_defeated_list']) if row['bosses_defeated_list'] else [],
-                    'charms_list': json.loads(row['charms_list']) if row['charms_list'] else [],
+                    'bosses_defeated_list': bosses_defeated_list,
+                    'charms_list': charms_list,
+                    'nail_damage': row['nail_damage'] if 'nail_damage' in row_keys and row['nail_damage'] is not None else 5,
+                    'nail_upgrades': row['nail_upgrades'] if 'nail_upgrades' in row_keys and row['nail_upgrades'] is not None else 0,
+                    'journal_entries': row['journal_entries'] if 'journal_entries' in row_keys and row['journal_entries'] is not None else 0,
+                    'journal_total': row['journal_total'] if 'journal_total' in row_keys and row['journal_total'] is not None else 146,
+                    'scenes_visited': row['scenes_visited'] if 'scenes_visited' in row_keys and row['scenes_visited'] is not None else 0,
+                    'scenes_mapped': row['scenes_mapped'] if 'scenes_mapped' in row_keys and row['scenes_mapped'] is not None else 0,
                     'ts': row['ts'],
                     'created_at': row['created_at']
                 }
@@ -1483,27 +1527,32 @@ def get_user_stats(guild_id: int) -> List[Tuple[str, int, int, int, int]]:
         raise DatabaseError(f"Failed to retrieve user stats: {e}") from e
 
 
-def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, int, int, int, int]]:
-    """Get game stats leaderboard. Returns (user_id, completion_percent, playtime_hours, bosses_defeated, geo, nail_upgrades, charms_owned)."""
+def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, int, int, int, int, int]]:
+    """Get game stats leaderboard.
+
+    Returns tuples of (user_id, completion_percent, playtime_hours, bosses_defeated,
+    geo, nail_upgrades, charms_owned, deaths).
+    """
     try:
         with _db_manager.get_connection() as conn:
             if _db_manager._use_postgres or _db_manager._use_mysql:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT 
+                        SELECT
                             user_id,
                             MAX(completion_percent) as completion_percent,
                             MAX(playtime_hours) as playtime_hours,
                             MAX(bosses_defeated) as bosses_defeated,
                             MAX(geo) as geo,
                             MAX(nail_upgrades) as nail_upgrades,
-                            MAX(charms_owned) as charms_owned
-                        FROM progress 
-                        WHERE guild_id = %s 
+                            MAX(charms_owned) as charms_owned,
+                            MAX(deaths) as deaths
+                        FROM progress
+                        WHERE guild_id = %s
                         AND completion_percent IS NOT NULL
                         AND playtime_hours IS NOT NULL
-                        GROUP BY user_id 
-                        ORDER BY 
+                        GROUP BY user_id
+                        ORDER BY
                             MAX(completion_percent) DESC,
                             MAX(bosses_defeated) DESC,
                             MAX(playtime_hours) DESC,
@@ -1512,39 +1561,45 @@ def get_game_stats_leaderboard(guild_id: int) -> List[Tuple[str, float, float, i
                     rows = cur.fetchall()
             else:
                 cur = conn.execute("""
-                    SELECT 
+                    SELECT
                         user_id,
                         MAX(completion_percent) as completion_percent,
                         MAX(playtime_hours) as playtime_hours,
                         MAX(bosses_defeated) as bosses_defeated,
                         MAX(geo) as geo,
                         MAX(nail_upgrades) as nail_upgrades,
-                        MAX(charms_owned) as charms_owned
-                    FROM progress 
-                    WHERE guild_id = ? 
+                        MAX(charms_owned) as charms_owned,
+                        MAX(deaths) as deaths
+                    FROM progress
+                    WHERE guild_id = ?
                     AND completion_percent IS NOT NULL
                     AND playtime_hours IS NOT NULL
-                    GROUP BY user_id 
-                    ORDER BY 
+                    GROUP BY user_id
+                    ORDER BY
                         MAX(completion_percent) DESC,
                         MAX(bosses_defeated) DESC,
                         MAX(playtime_hours) DESC,
                         MAX(geo) DESC
                 """, (str(guild_id),))
                 rows = cur.fetchall()
-            
-            return [
-                (
-                    row["user_id"], 
-                    float(row["completion_percent"] or 0),
-                    float(row["playtime_hours"] or 0),
-                    int(row["bosses_defeated"] or 0),
-                    int(row["geo"] or 0),
-                    int(row["nail_upgrades"] or 0),
-                    int(row["charms_owned"] or 0)
-                ) 
-                for row in rows
-            ]
+
+            leaderboard: List[Tuple[str, float, float, int, int, int, int, int]] = []
+            for row in rows:
+                row_keys = set(row.keys()) if hasattr(row, 'keys') else set()
+                deaths = row['deaths'] if 'deaths' in row_keys and row['deaths'] is not None else 0
+                leaderboard.append(
+                    (
+                        row['user_id'],
+                        float(row['completion_percent'] or 0),
+                        float(row['playtime_hours'] or 0),
+                        int(row['bosses_defeated'] or 0),
+                        int(row['geo'] or 0),
+                        int(row['nail_upgrades'] or 0),
+                        int(row['charms_owned'] or 0),
+                        int(deaths),
+                    )
+                )
+            return leaderboard
     except Exception as e:
         log.error(f"Failed to get game stats leaderboard: {e}")
         raise DatabaseError(f"Failed to retrieve game stats leaderboard: {e}") from e
