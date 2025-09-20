@@ -53,6 +53,22 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
         completion_percent = pd.get("completionPercentage", pd.get("completionPercent", 0))
         completion_per_hour = round(completion_percent / playtime_hours, 2) if playtime_hours > 0 else 0
         
+        deaths = (
+            pd.get("totalDeaths")
+            or pd.get("deathCount")
+            or pd.get("deaths")
+            or pd.get("deathsCounter")
+            or 0
+        )
+
+        total_soul_vessels = _calculate_soul_vessels(pd)
+        extra_soul_vessels = max(total_soul_vessels - 3, 0)
+
+        owned_charms = _get_owned_charms_list(pd)
+        equipped_charms = _get_equipped_charms_list(pd)
+        bosses_defeated_list_actual = _get_defeated_bosses_list(pd)
+        bosses_defeated_actual = len(bosses_defeated_list_actual)
+
         summary = {
             "playtime_hours": playtime_hours,
             "playtime_seconds": pd.get("playTime", 0),
@@ -61,17 +77,22 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
             "geo": pd.get("geo", 0),
             "health": pd.get("health", 0),
             "max_health": pd.get("maxHealth", 0),
+            "deaths": int(deaths) if isinstance(deaths, (int, float)) else 0,
             "scene": pd.get("respawnScene", "Unknown"),
             "zone": pd.get("mapZone", "Unknown"),
-            "soul_vessels": _calculate_soul_vessels(pd),
+            "soul_vessels": 0,
+            "total_soul_vessels": total_soul_vessels,
             "mask_shards": pd.get("heartPieces", 0),
-            "charms_owned": pd.get("charmsOwned", 0),
-            "charms_equipped": _get_equipped_charms_list(pd),
+            "charms_owned": len(owned_charms),
+            "charms_owned_actual": pd.get("charmsOwned", len(owned_charms)),
+            "charms_equipped": equipped_charms,
             "charm_slots": pd.get("charmSlots", 0),
             "charm_slots_filled": pd.get("charmSlotsFilled", 0),
-            "bosses_defeated": _count_defeated_bosses(pd),
-            "bosses_defeated_list": _get_defeated_bosses_list(pd),
-            "charms_list": _get_owned_charms_list(pd),
+            "bosses_defeated": 0,
+            "bosses_defeated_actual": bosses_defeated_actual,
+            "bosses_defeated_list": [],
+            "bosses_defeated_list_actual": bosses_defeated_list_actual,
+            "charms_list": owned_charms,
             "nail_damage": pd.get("nailDamage", 5),
             "nail_upgrades": _calculate_nail_upgrades(pd),
             "nail_arts": _get_nail_arts_list(pd),
@@ -138,11 +159,13 @@ def _get_save_version(raw: Dict[str, Any], pd: Dict[str, Any]) -> str:
 
 def _calculate_nail_upgrades(pd: Dict[str, Any]) -> int:
     """Calculate nail upgrade level from nail damage."""
+    smith_upgrades = pd.get("nailSmithUpgrades")
+    if isinstance(smith_upgrades, (int, float)):
+        return int(smith_upgrades)
+
+    damage_mapping = {5: 0, 9: 1, 13: 2, 17: 3, 21: 4}
     nail_damage = pd.get("nailDamage", 5)
-    # Base nail damage is 5, each upgrade adds 4 damage
-    if nail_damage <= 5:
-        return 0
-    return (nail_damage - 5) // 4
+    return damage_mapping.get(nail_damage, 0)
 
 
 def _get_nail_arts_list(pd: Dict[str, Any]) -> list:
@@ -548,14 +571,29 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
     minutes = int((playtime_seconds % 3600) // 60)
     seconds = int(playtime_seconds % 60)
     playtime_formatted = f"{hours} h {minutes:02d} min {seconds:02d} sec"
-    
+    playtime_hours = summary.get('playtime_hours', 0)
+
+    # Stage messaging
+    if completion == 0:
+        stage_line = "Fresh save detected!"
+        journey_line = "Hallownest journey is just beginning!"
+    else:
+        stage_line = f"**Stage**: {stage}"
+        journey_line = f"Hallownest journey: {stage}"
+
     # Health display with mask images - cleaner format
     health_masks = "❤️" * summary['max_health']
     health_text = f"{health_masks} ({summary['max_health']})"
     
     # Soul display with orb images - cleaner format
-    soul_orbs = "💙" * summary['soul_vessels']
-    soul_text = f"{soul_orbs} ({summary['soul_vessels']})"
+    total_vessels = summary.get('total_soul_vessels')
+    if total_vessels is None:
+        extra_vessels = summary.get('soul_vessels', 0)
+        total_vessels = extra_vessels + 3 if extra_vessels else extra_vessels
+    if not total_vessels:
+        total_vessels = 3  # Base number of vessels
+    soul_orbs = "💙" * total_vessels
+    soul_text = f"{soul_orbs} ({total_vessels})"
     
     # Notches display - cleaner format
     notches = "🔸" * summary.get('charm_slots', 0)
@@ -563,8 +601,14 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
     
     # Bosses list
     bosses_text = ""
-    if summary.get('bosses_defeated_list'):
-        bosses_text = f"**Bosses Defeated**: {', '.join(summary['bosses_defeated_list'])}\n"
+    bosses_defeated_list = summary.get('bosses_defeated_list_actual', summary.get('bosses_defeated_list')) or []
+    if isinstance(bosses_defeated_list, str):
+        try:
+            bosses_defeated_list = json.loads(bosses_defeated_list)
+        except json.JSONDecodeError:
+            bosses_defeated_list = []
+    if bosses_defeated_list:
+        bosses_text = f"**Bosses Defeated**: {', '.join(bosses_defeated_list)}\n"
     
     # Nail arts
     nail_arts_text = ""
@@ -578,17 +622,29 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
     
     # Equipment (charms equipped)
     equipment_text = ""
-    if summary.get('charms_equipped'):
-        equipment_text = f"**Equipment**: {', '.join(summary['charms_equipped'])}\n"
-    
+    charms_equipped = summary.get('charms_equipped') or []
+    if isinstance(charms_equipped, str):
+        try:
+            charms_equipped = json.loads(charms_equipped)
+        except json.JSONDecodeError:
+            charms_equipped = []
+    if charms_equipped:
+        equipment_text = f"**Equipment**: {', '.join(charms_equipped)}\n"
+
+    bosses_defeated_count = summary.get('bosses_defeated_actual', summary.get('bosses_defeated', 0))
+
     message = f"""🎮 **Hollow Knight Progress Analysis** {emoji}
+
+{stage_line}
+{journey_line}
 
 **Health**: {health_text}
 **Soul**: {soul_text}
 **Notches**: {notches_text}
 **Geo**: 💰 {summary['geo']:,}
-**Time Played**: ⏱️ {playtime_formatted}
+**Playtime**: ⏱️ {playtime_formatted} ({playtime_hours:.2f} hours)
 **Game Completion**: 📊 {completion}% (out of 112%) - {summary.get('completion_per_hour', 0)}%/hr
+**Deaths**: 💀 {summary.get('deaths', 0)} | 👹 Bosses defeated: {bosses_defeated_count}
 **Save Version**: 📝 {summary.get('save_version', 'Unknown')}
 
 **Nail**: ⚔️ +{summary.get('nail_upgrades', 0)} upgrades ({summary.get('nail_damage', 5)} damage)
