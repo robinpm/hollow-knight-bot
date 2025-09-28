@@ -103,6 +103,7 @@ def parse_hk_save(file_content: bytes) -> Dict[str, Any]:
             "scenes_visited": len(pd.get("scenesVisited", [])),
             "scenes_mapped": len(pd.get("scenesMapped", [])),
             "save_version": _get_save_version(raw, pd),
+            "path_of_pain_completed": "Yes" if pd.get("killedBindingSeal", 0) else "No",
         }
         
         return summary
@@ -652,6 +653,7 @@ def format_save_summary(summary: Dict[str, Any]) -> str:
 {bosses_text}{abilities_text}{equipment_text}
 **Collectibles**: 🐛 {summary.get('grubs_collected', 0)} grubs, 📖 {summary.get('journal_entries', 0)}/{summary.get('journal_total', 146)} journal entries
 **Exploration**: 🗺️ {summary.get('scenes_visited', 0)} scenes visited, {summary.get('scenes_mapped', 0)} mapped
+**Path of Pain Completed**: 💔 {summary.get('path_of_pain_completed', 0)}
 
 📍 **Current Location**: {summary['scene']} ({summary['zone']})"""
     
