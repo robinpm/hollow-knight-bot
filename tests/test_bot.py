@@ -101,9 +101,53 @@ def test_command_structure():
     """Test that the new command structure is properly defined."""
     from core import main
 
-    assert main.BOT_VERSION == "3.0"
+    assert main.BOT_VERSION == "3.3"
     assert hasattr(main, 'bot')
     assert hasattr(main, 'hollow_group')
+
+
+def test_bot_only_reacts_to_direct_mentions():
+    """Ensure mention detection only triggers for the HollowBot account."""
+    from types import SimpleNamespace
+
+    from core import main
+
+    bot_user = SimpleNamespace(id=1234)
+
+    message_with_other_mentions = SimpleNamespace(
+        mentions=[SimpleNamespace(id=9999)],
+        raw_mentions=[9999],
+        content="<@9999> hello there",
+    )
+
+    message_with_bot_mention = SimpleNamespace(
+        mentions=[],
+        raw_mentions=[],
+        content=f"<@{bot_user.id}> fight!",
+    )
+
+    assert not main._is_bot_mentioned(message_with_other_mentions, bot_user)
+    assert main._is_bot_mentioned(message_with_bot_mention, bot_user)
+
+
+def test_strip_bot_mention_preserves_other_mentions():
+    """Ensure we only remove the bot mention token and keep other mentions intact."""
+    from types import SimpleNamespace
+
+    from core import main
+
+    bot_user = SimpleNamespace(id=1234)
+    other_user_id = 4321
+
+    content = f"<@{bot_user.id}> fight <@{other_user_id}>"
+    cleaned = main._strip_bot_mention(content, bot_user)
+
+    assert cleaned == f"fight <@{other_user_id}>"
+
+    content_with_bang = f"<@!{bot_user.id}>   hello"
+    cleaned_with_bang = main._strip_bot_mention(content_with_bang, bot_user)
+
+    assert cleaned_with_bang == "hello"
 
 
 def test_leaderboard_algorithm():
