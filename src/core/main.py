@@ -7,7 +7,7 @@
 # - This version is used in /hollow-bot info command and health check endpoint
 # Bot version - increment this for each release
 
-BOT_VERSION = "3.0"
+BOT_VERSION = "3.3"
 
 import asyncio
 import os
@@ -101,6 +101,48 @@ async def safe_interaction_response(interaction: discord.Interaction, message: s
     except Exception as e:
         log.error(f"Unexpected error in interaction response: {e}")
         return False
+
+
+def _is_bot_mentioned(message: discord.Message, bot_user: Optional[discord.abc.User]) -> bool:
+    """Return True only when the current message directly mentions the bot."""
+    if not bot_user:
+        return False
+
+    bot_user_id = getattr(bot_user, "id", None)
+    if bot_user_id is None:
+        return False
+
+    try:
+        if any(getattr(member, "id", None) == bot_user_id for member in getattr(message, "mentions", [])):
+            return True
+
+        raw_mentions = getattr(message, "raw_mentions", []) or []
+        if bot_user_id in raw_mentions:
+            return True
+
+        content = getattr(message, "content", "") or ""
+        mention_tokens = (f"<@{bot_user_id}>", f"<@!{bot_user_id}>")
+        return any(token in content for token in mention_tokens)
+    except Exception as exc:
+        log.error(f"Failed to evaluate mention detection: {exc}")
+        return False
+
+
+def _strip_bot_mention(content: str, bot_user: Optional[discord.abc.User]) -> str:
+    """Remove only the HollowBot mention token while preserving other mentions."""
+    if not bot_user:
+        return content
+
+    bot_user_id = getattr(bot_user, "id", None)
+    if bot_user_id is None:
+        return content
+
+    mention_tokens = (f"<@!{bot_user_id}>", f"<@{bot_user_id}>")
+    for token in mention_tokens:
+        content = content.replace(token, " ")
+
+    # Collapse repeated whitespace and strip to avoid leftover gaps
+    return re.sub(r"\s+", " ", content).strip()
 
 
 def _build_updates_context(guild: discord.Guild) -> str:
@@ -389,18 +431,15 @@ async def on_message(message: discord.Message) -> None:
         return
 
     try:
-        mentioned = bot.user in message.mentions
+        bot_user = bot.user
+        mentioned = _is_bot_mentioned(message, bot_user)
 
         if mentioned:
             print(f"🔔 MENTION DETECTED - Guild: {message.guild.id} ({message.guild.name})")
             print(f"   💬 Message: '{message.content[:100]}{'...' if len(message.content) > 100 else ''}'")
             print(f"   👤 Author: {message.author.display_name} ({message.author.id})")
             print(f"   ⚡ Bypassing random chance - responding to mention")
-            for mention in message.mentions:
-                content = content.replace(f"<@!{mention.id}>", "").replace(
-                    f"<@{mention.id}>", ""
-                )
-            content = content.strip()
+            content = _strip_bot_mention(content, bot_user)
 
             if not content:
                 await message.reply(
